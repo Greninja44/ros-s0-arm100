@@ -4,15 +4,15 @@
        name="so100">
 
   <!-- ========================================================= -->
-  <!-- Materials                                                  -->
+  <!-- MATERIALS                                                  -->
   <!-- ========================================================= -->
 
-  <material name="so100_gray">
-    <color rgba="0.65 0.65 0.65 1.0"/>
+  <material name="so100_white">
+    <color rgba="0.92 0.92 0.92 1.0"/>
   </material>
 
-  <material name="so100_dark">
-    <color rgba="0.15 0.15 0.15 1.0"/>
+  <material name="so100_black">
+    <color rgba="0.03 0.03 0.03 1.0"/>
   </material>
 
 
@@ -21,35 +21,6 @@
   <!-- ========================================================= -->
 
   <link name="base">
-
-    <!-- Main base -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Base.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Base motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Base_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Base.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Base_Motor.stl"/>
-      </geometry>
-    </collision>
 
     <inertial>
       <mass value="1.0"/>
@@ -63,6 +34,26 @@
         izz="0.01"/>
     </inertial>
 
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Base.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Base_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Base.stl"/>
+      </geometry>
+    </collision>
+
   </link>
 
 
@@ -71,35 +62,6 @@
   <!-- ========================================================= -->
 
   <link name="shoulder">
-
-    <!-- Shoulder body -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Shoulder motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch_Motor.stl"/>
-      </geometry>
-    </collision>
 
     <inertial>
       <mass value="0.119226"/>
@@ -114,6 +76,26 @@
         iyz="0"
         izz="3.13712e-05"/>
     </inertial>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Rotation_Pitch.stl"/>
+      </geometry>
+    </collision>
 
   </link>
 
@@ -148,35 +130,6 @@
 
   <link name="upper_arm">
 
-    <!-- Upper arm body -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Upper_Arm.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Upper arm motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Upper_Arm_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Upper_Arm.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Upper_Arm_Motor.stl"/>
-      </geometry>
-    </collision>
-
     <inertial>
       <mass value="0.162409"/>
       <origin
@@ -190,6 +143,26 @@
         iyz="0"
         izz="7.01522e-05"/>
     </inertial>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Upper_Arm.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Upper_Arm_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Upper_Arm.stl"/>
+      </geometry>
+    </collision>
 
   </link>
 
@@ -209,8 +182,10 @@
 
     <axis xyz="1 0 0"/>
 
+    <!-- Small tolerance for floating point zero -->
+
     <limit
-      lower="0"
+      lower="-0.001"
       upper="3.5"
       effort="35"
       velocity="1"/>
@@ -223,35 +198,6 @@
   <!-- ========================================================= -->
 
   <link name="lower_arm">
-
-    <!-- Lower arm body -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Lower_Arm.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Lower arm motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Lower_Arm_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Lower_Arm.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Lower_Arm_Motor.stl"/>
-      </geometry>
-    </collision>
 
     <inertial>
       <mass value="0.147968"/>
@@ -267,11 +213,31 @@
         izz="4.84242e-05"/>
     </inertial>
 
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Lower_Arm.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Lower_Arm_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Lower_Arm.stl"/>
+      </geometry>
+    </collision>
+
   </link>
 
 
   <!-- ========================================================= -->
-  <!-- ELBOW FLEX                                                -->
+  <!-- ELBOW FLEX                                                 -->
   <!-- ========================================================= -->
 
   <joint name="elbow_flex" type="revolute">
@@ -285,9 +251,11 @@
 
     <axis xyz="1 0 0"/>
 
+    <!-- Small tolerance for floating point zero -->
+
     <limit
       lower="-3.14158"
-      upper="0"
+      upper="0.001"
       effort="35"
       velocity="1"/>
 
@@ -299,35 +267,6 @@
   <!-- ========================================================= -->
 
   <link name="wrist">
-
-    <!-- Wrist body -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Wrist motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll_Motor.stl"/>
-      </geometry>
-    </collision>
 
     <inertial>
       <mass value="0.0661321"/>
@@ -342,6 +281,26 @@
         iyz="0"
         izz="1.94704e-05"/>
     </inertial>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Wrist_Pitch_Roll.stl"/>
+      </geometry>
+    </collision>
 
   </link>
 
@@ -371,39 +330,10 @@
 
 
   <!-- ========================================================= -->
-  <!-- GRIPPER HOUSING                                            -->
+  <!-- GRIPPER                                                    -->
   <!-- ========================================================= -->
 
   <link name="gripper">
-
-    <!-- Fixed jaw body -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <!-- Fixed jaw motor -->
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw_Motor.stl"/>
-      </geometry>
-      <material name="so100_dark"/>
-    </visual>
-
-    <!-- Collision -->
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw.stl"/>
-      </geometry>
-    </collision>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw_Motor.stl"/>
-      </geometry>
-    </collision>
 
     <inertial>
       <mass value="0.0929859"/>
@@ -418,6 +348,20 @@
         iyz="0"
         izz="2.72961e-05"/>
     </inertial>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Fixed_Jaw_Motor.stl"/>
+      </geometry>
+      <material name="so100_black"/>
+    </visual>
 
   </link>
 
@@ -452,19 +396,6 @@
 
   <link name="jaw">
 
-    <visual>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Moving_Jaw.stl"/>
-      </geometry>
-      <material name="so100_gray"/>
-    </visual>
-
-    <collision>
-      <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Moving_Jaw.stl"/>
-      </geometry>
-    </collision>
-
     <inertial>
       <mass value="0.0202444"/>
       <origin
@@ -479,14 +410,27 @@
         izz="2.99548e-06"/>
     </inertial>
 
+    <visual>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Moving_Jaw.stl"/>
+      </geometry>
+      <material name="so100_white"/>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="package://so100_description/meshes/so100/Moving_Jaw.stl"/>
+      </geometry>
+    </collision>
+
   </link>
 
 
   <!-- ========================================================= -->
-  <!-- GRIPPER                                                   -->
+  <!-- GRIPPER JOINT                                              -->
   <!-- ========================================================= -->
 
-  <joint name="gripper" type="revolute">
+  <joint name="gripper_joint" type="revolute">
 
     <parent link="gripper"/>
     <child link="jaw"/>
@@ -504,5 +448,69 @@
       velocity="1"/>
 
   </joint>
+
+
+  <!-- ========================================================= -->
+  <!-- ROS 2 CONTROL                                              -->
+  <!-- ========================================================= -->
+
+  <ros2_control name="GazeboSystem" type="system">
+
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+
+    <joint name="shoulder_pan">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="shoulder_lift">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="elbow_flex">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wrist_flex">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wrist_roll">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="gripper_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+  </ros2_control>
+
+
+  <!-- ========================================================= -->
+  <!-- GAZEBO ROS 2 CONTROL PLUGIN                               -->
+  <!-- ========================================================= -->
+
+  <gazebo>
+
+    <plugin
+      filename="gz_ros2_control-system"
+      name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+    </plugin>
+
+  </gazebo>
+
 
 </robot>
