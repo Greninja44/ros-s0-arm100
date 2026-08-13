@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: so100_description
+    relative_path: urdf/so100.urdf.xacro
+  srdf:
+    relative_path: config/so100.srdf
+  package_settings:
+    author_name: adarsh
+    author_email: adarshvijaya22@gmail.com
+    generated_timestamp: 1786551212
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
