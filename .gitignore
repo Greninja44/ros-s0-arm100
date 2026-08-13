@@ -1,8 +1,16 @@
-# ROS 2 / colcon build artifacts
+# colcon build artifacts
 build/
 install/
 log/
 
+# stray directory created by mistake (duplicate old workspace)
+~/
+
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
