@@ -45,9 +45,11 @@ pick_place_ws/
 
 * `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin
 * `urdf/gazebo.xacro` — link friction / gazebo properties
-* `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock,
-  starts RSP and loads the controllers
+* `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock and
+  the camera, starts RSP and loads the controllers
 * `config/controllers.yaml` — `joint_state_broadcaster` + `arm_controller`
+* `worlds/pick_place.world` — ground plane, sun, a red pick cube, a green place
+  pad and an overhead camera (default world)
 * `worlds/empty.world` — ground plane + sun
 
 ### so100_moveit_config
@@ -94,11 +96,25 @@ source install/setup.bash
 ros2 launch so100_description gazebo.launch.py
 ```
 
+The default world (`pick_place.world`) spawns a red cube to pick at
+`(0.25, 0.0, 0.015)` and a green place pad at `(-0.05, 0.25, 0.0025)`, matching
+the `pick_place` defaults. To load the plain world instead:
+
+```bash
+ros2 launch so100_description gazebo.launch.py world:=empty.world
+```
+
 Verify the controllers are active:
 
 ```bash
 ros2 control list_controllers
 # should list joint_state_broadcaster and arm_controller as active
+```
+
+Check the overhead camera image (bridged from Gazebo to `/image`):
+
+```bash
+ros2 run rqt_image_view rqt_image_view
 ```
 
 ### 2. With MoveIt 2 (motion planning in RViz)
@@ -162,7 +178,7 @@ image -> joint_states -> arm_controller loop can be verified first.
 | `/joint_states` | `sensor_msgs/msg/JointState` | current joint positions/velocities |
 | `/arm_controller/follow_joint_trajectory` | `action_msgs/msg/FollowJointTrajectory` | send trajectory goals to the arm |
 | `/clock` | `rosgraph_msgs/msg/Clock` | simulation time (use_sim_time) |
-| camera image | `sensor_msgs/msg/Image` | policy observation (Gazebo camera) |
+| `/image` | `sensor_msgs/msg/Image` | overhead camera observation (Gazebo, bridged) |
 
 ### Joints
 
@@ -177,7 +193,7 @@ image -> joint_states -> arm_controller loop can be verified first.
 - [x] Gripper control (`gripper.py` / `gripper_demo`)
 - [x] Octo policy inference node (`octo_policy`, image + instruction -> actions)
 - [x] Pick-and-place cycle script (`pick_place`, MoveIt + gripper)
-- [ ] Add pick/place objects and a camera sensor to the world
+- [x] Add pick/place objects and a camera sensor to the world
 - [ ] Data collection / dataset with `ros2 bag` + vision teleop
 - [ ] Wire the Octo node to a real pick-and-place scene (IK action mapping)
 - [ ] End-to-end pick-and-place driven by the policy in simulation
