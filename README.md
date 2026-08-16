@@ -45,9 +45,11 @@ pick_place_ws/
 
 * `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin
 * `urdf/gazebo.xacro` — link friction / gazebo properties
-* `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock,
-  starts RSP and loads the controllers
+* `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock and
+  the camera, starts RSP and loads the controllers
 * `config/controllers.yaml` — `joint_state_broadcaster` + `arm_controller`
+* `worlds/pick_place.world` — ground plane, sun, a red pick cube, a green place
+  pad and an overhead camera (default world)
 * `worlds/empty.world` — ground plane + sun
 
 ### so100_moveit_config
@@ -61,12 +63,23 @@ ROS 2 Python package with the policy and grasp nodes:
 
 * `octo_policy_node.py` — `octo_policy` node: subscribes to the camera image and
   `/joint_states`, runs Octo on a natural-language instruction, sends the action
-  chunk to `arm_controller`. Octo loads lazily; `mock:=true` tests the loop
-  without a GPU/checkpoint.
+  chunk to `arm_controller`. Supports both joint-space and Cartesian control
+  modes. In Cartesian mode, the policy's end-effector deltas are converted to
+  joint positions via KDL inverse kinematics. Octo loads lazily; `mock:=true`
+  tests the loop without a GPU/checkpoint.
 * `gripper.py` — `Gripper` class (open/close via `FollowJointTrajectory`) plus
   the `gripper_demo` node.
 * `pick_place.py` — `pick_place` node: full cycle (home -> pre-grasp -> approach
   -> close -> lift -> place -> open) planned through the `move_group` action.
+* `teleop_keyboard.py` — `teleop_keyboard` node: keyboard teleoperation for the
+  SO-100 arm. Controls all 5 arm joints and the gripper via key presses
+  (a/d, w/s, q/e, r/f, z/x for joints, o/p for gripper).
+* `collect_data.py` — `collect_data` node: records observations (camera image +
+  joint states) and actions to a `rosbag2` SQLite database while teleoperating.
+  Writes episode metadata in a format compatible with Octo training.
+* `vla_pick_place.py` — `vla_pick_place` node: end-to-end VLA-driven
+  pick-and-place. Runs the Octo policy in a closed loop with gripper control
+  heuristics, IK action mapping, and episode termination.
 
 ## Prerequisites
 
@@ -94,11 +107,25 @@ source install/setup.bash
 ros2 launch so100_description gazebo.launch.py
 ```
 
+The default world (`pick_place.world`) spawns a red cube to pick at
+`(0.25, 0.0, 0.015)` and a green place pad at `(-0.05, 0.25, 0.0025)`, matching
+the `pick_place` defaults. To load the plain world instead:
+
+```bash
+ros2 launch so100_description gazebo.launch.py world:=empty.world
+```
+
 Verify the controllers are active:
 
 ```bash
 ros2 control list_controllers
 # should list joint_state_broadcaster and arm_controller as active
+```
+
+Check the overhead camera image (bridged from Gazebo to `/image`):
+
+```bash
+ros2 run rqt_image_view rqt_image_view
 ```
 
 ### 2. With MoveIt 2 (motion planning in RViz)
@@ -155,6 +182,66 @@ ros2 run vla_policy octo_policy --ros-args -p mock:=true
 The `mock` mode skips Octo and streams a small scripted motion so the
 image -> joint_states -> arm_controller loop can be verified first.
 
+### 6. Keyboard teleoperation
+
+```bash
+# terminal 1 — simulation
+ros2 launch so100_description gazebo.launch.py
+
+# terminal 2 — keyboard teleop
+ros2 run vla_policy teleop_keyboard
+
+# Keys: a/d (shoulder_pan), w/s (shoulder_lift), q/e (elbow_flex),
+#        r/f (wrist_flex), z/x (wrist_roll), o/p (gripper open/close)
+```
+
+### 7. Data collection
+
+```bash
+# terminal 1 — simulation
+ros2 launch so100_description gazebo.launch.py
+
+# terminal 2 — keyboard teleop
+ros2 run vla_policy teleop_keyboard
+
+# terminal 3 — record data to rosbag
+ros2 run vla_policy collect_data --ros-args \
+  -p instruction:="pick up the red cube" \
+  -p bag_dir:=/tmp/episode_001
+```
+
+The bag contains `/image`, `/joint_states` (observations) and `/action`
+(commanded joint positions). An `episode.yaml` metadata file is written
+alongside the bag.
+
+### 8. End-to-end VLA pick-and-place
+
+```bash
+# terminal 1 — simulation
+ros2 launch so100_description gazebo.launch.py
+
+# terminal 2 — VLA pick-and-place (Octo in Cartesian mode with IK)
+ros2 run vla_policy vla_pick_place --ros-args \
+  -p instruction:="pick up the red cube and place it in the tray"
+
+# mock mode (no GPU required):
+ros2 run vla_policy vla_pick_place --ros-args -p mock:=true
+```
+
+The node runs the policy in a closed loop: observe -> predict -> IK ->
+execute -> repeat, with automatic gripper open/close heuristics.
+
+### 9. Octo with IK (Cartesian control)
+
+The `octo_policy` node now supports Cartesian control mode where Octo's
+end-effector deltas are converted to joint positions via KDL IK:
+
+```bash
+ros2 run vla_policy octo_policy --ros-args \
+  -p control_mode:=cartesian \
+  -p instruction:="pick up the red cube"
+```
+
 ## Key interfaces
 
 | Topic / Action | Type | Purpose |
@@ -162,7 +249,7 @@ image -> joint_states -> arm_controller loop can be verified first.
 | `/joint_states` | `sensor_msgs/msg/JointState` | current joint positions/velocities |
 | `/arm_controller/follow_joint_trajectory` | `action_msgs/msg/FollowJointTrajectory` | send trajectory goals to the arm |
 | `/clock` | `rosgraph_msgs/msg/Clock` | simulation time (use_sim_time) |
-| camera image | `sensor_msgs/msg/Image` | policy observation (Gazebo camera) |
+| `/image` | `sensor_msgs/msg/Image` | overhead camera observation (Gazebo, bridged) |
 
 ### Joints
 
@@ -177,10 +264,10 @@ image -> joint_states -> arm_controller loop can be verified first.
 - [x] Gripper control (`gripper.py` / `gripper_demo`)
 - [x] Octo policy inference node (`octo_policy`, image + instruction -> actions)
 - [x] Pick-and-place cycle script (`pick_place`, MoveIt + gripper)
-- [ ] Add pick/place objects and a camera sensor to the world
-- [ ] Data collection / dataset with `ros2 bag` + vision teleop
-- [ ] Wire the Octo node to a real pick-and-place scene (IK action mapping)
-- [ ] End-to-end pick-and-place driven by the policy in simulation
+- [x] Add pick/place objects and a camera sensor to the world
+- [x] Data collection / dataset with `ros2 bag` + vision teleop
+- [x] Wire the Octo node to a real pick-and-place scene (IK action mapping)
+- [x] End-to-end pick-and-place driven by the policy in simulation
 - [ ] (Optional) sim-to-real transfer to the physical SO-ARM100
 
 ## References

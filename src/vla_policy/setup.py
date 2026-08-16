@@ -21,6 +21,9 @@ setup(
             "octo_policy = vla_policy.octo_policy_node:main",
             "gripper_demo = vla_policy.gripper:main",
             "pick_place = vla_policy.pick_place:main",
+            "teleop_keyboard = vla_policy.teleop_keyboard:main",
+            "collect_data = vla_policy.collect_data:main",
+            "vla_pick_place = vla_policy.vla_pick_place:main",
         ],
     },
 )
