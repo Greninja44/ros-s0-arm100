@@ -3,11 +3,16 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command
+from launch.substitutions import (
+    Command,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -22,11 +27,17 @@ def generate_launch_description():
         "so100.urdf.xacro"
     )
 
-    world_file = os.path.join(
-        pkg_share,
-        "worlds",
-        "empty.world"
+    world_arg = DeclareLaunchArgument(
+        "world",
+        default_value="pick_place.world",
+        description="World file to load (pick_place.world or empty.world)"
     )
+
+    world_file = PathJoinSubstitution([
+        FindPackageShare(package_name),
+        "worlds",
+        LaunchConfiguration("world"),
+    ])
 
     # =========================================================
     # Gazebo Harmonic
@@ -41,7 +52,7 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "gz_args": f"-r {world_file}"
+            "gz_args": ["-r ", world_file]
         }.items()
     )
 
@@ -54,6 +65,20 @@ def generate_launch_description():
         executable="parameter_bridge",
         arguments=[
             "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+        ],
+        output="screen"
+    )
+
+    # =========================================================
+    # Gazebo -> ROS 2 camera bridge
+    # =========================================================
+
+    camera_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            "/image@sensor_msgs/msg/Image[gz.msgs.Image",
+            "/image/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
         ],
         output="screen"
     )
@@ -145,8 +170,10 @@ def generate_launch_description():
     # =========================================================
 
     return LaunchDescription([
+        world_arg,
         gazebo,
         clock_bridge,
+        camera_bridge,
         robot_state_publisher,
         spawn_robot,
         joint_state_broadcaster,
