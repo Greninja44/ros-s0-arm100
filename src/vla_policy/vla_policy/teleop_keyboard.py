@@ -50,8 +50,8 @@ ARM_JOINTS = [
 ]
 
 # Joint limits from URDF (rad) — used for clamping.
-JOINT_MIN = np.array([-1.57, -1.57, -1.57, -1.57, -1.57, -0.2], dtype=np.float64)
-JOINT_MAX = np.array([1.57, 1.57, 1.57, 1.57, 1.57, 2.0], dtype=np.float64)
+JOINT_MIN = np.array([-2.0, -0.001, -3.14158, -2.5, -3.14158, -0.2], dtype=np.float64)
+JOINT_MAX = np.array([2.0, 3.5, 0.001, 1.2, 3.14158, 2.0], dtype=np.float64)
 
 DEFAULT_STEP = 0.05  # rad per key press
 
