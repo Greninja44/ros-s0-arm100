@@ -242,6 +242,102 @@ ros2 run vla_policy octo_policy --ros-args \
   -p instruction:="pick up the red cube"
 ```
 
+### 10. OpenVLA policy (drop-in Octo replacement)
+
+```bash
+# With GPU:
+ros2 run vla_policy openvla_policy --ros-args \
+  -p instruction:="pick up the red cube and place it in the tray"
+
+# mock mode:
+ros2 run vla_policy openvla_policy --ros-args -p mock:=true
+
+# Cartesian mode:
+ros2 run vla_policy openvla_policy --ros-args \
+  -p control_mode:=cartesian \
+  -p instruction:="pick up the red cube"
+```
+
+### 11. SAM 2 object segmentation
+
+```bash
+# With GPU + Grounding DINO for text-prompted detection:
+ros2 run vla_policy sam2_segmentation --ros-args \
+  -p prompt:="red cube"
+
+# mock mode:
+ros2 run vla_policy sam2_segmentation --ros-args -p mock:=true
+```
+
+### 12. Diffusion Policy (stochastic motion generation)
+
+```bash
+ros2 run vla_policy diffusion_policy --ros-args \
+  -p instruction:="pick up the red cube"
+
+# With a pre-trained checkpoint:
+ros2 run vla_policy diffusion_policy --ros-args \
+  -p checkpoint_path:=/path/to/checkpoint.pt
+
+# mock mode:
+ros2 run vla_policy diffusion_policy --ros-args -p mock:=true
+```
+
+### 13. LLM task decomposition
+
+```bash
+# Mock mode (predefined pick-and-place plan):
+ros2 run vla_policy task_decomposer --ros-args \
+  -p instruction:="pick up the red cube and place it in the tray"
+
+# With OpenAI:
+export OPENAI_API_KEY=your-key
+ros2 run vla_policy task_decomposer --ros-args \
+  -p llm_provider:=openai \
+  -p instruction:="stack the blue cube on the red cube"
+
+# With local Ollama:
+ros2 run vla_policy task_decomposer --ros-args \
+  -p llm_provider:=ollama \
+  -p llm_model:=llama3 \
+  -p instruction:="pick up the red cube"
+```
+
+### 14. Depth camera world + point cloud processing
+
+```bash
+# Terminal 1 — simulation with RGB-D camera
+ros2 launch so100_description gazebo.launch.py world:=pick_place_depth.world
+
+# Terminal 2 — point cloud processing + grasp detection
+ros2 run vla_policy pointcloud_processor
+```
+
+### 15. Domain randomization world
+
+```bash
+# Terminal 1 — randomized simulation (varied lighting, objects, textures)
+ros2 launch so100_description gazebo.launch.py world:=domain_randomized.world
+```
+
+### 16. Tactile sensing
+
+```bash
+# Simulated tactile feedback:
+ros2 run vla_policy tactile_sensing
+
+# With real GelSight sensor:
+ros2 run vla_policy tactile_sensing --ros-args -p sensor_type:=gelsight
+```
+
+### 17. Isaac Sim (photorealistic rendering)
+
+```bash
+# Requires NVIDIA Isaac Sim installed via Omniverse
+ros2 launch so100_description isaac/isaac_sim.launch.py \
+  domain_randomization:=true
+```
+
 ## Key interfaces
 
 | Topic / Action | Type | Purpose |
@@ -250,6 +346,15 @@ ros2 run vla_policy octo_policy --ros-args \
 | `/arm_controller/follow_joint_trajectory` | `action_msgs/msg/FollowJointTrajectory` | send trajectory goals to the arm |
 | `/clock` | `rosgraph_msgs/msg/Clock` | simulation time (use_sim_time) |
 | `/image` | `sensor_msgs/msg/Image` | overhead camera observation (Gazebo, bridged) |
+| `/depth/image` | `sensor_msgs/msg/Image` | depth camera observation (Gazebo, bridged) |
+| `/pointcloud` | `sensor_msgs/msg/PointCloud2` | colored 3D point cloud from depth |
+| `/sam2/mask` | `sensor_msgs/msg/Image` | SAM 2 segmentation mask |
+| `/sam2/centroid` | `geometry_msgs/msg/PoseStamped` | 3D centroid of segmented object |
+| `/tactile/force` | `geometry_msgs/msg/WrenchStamped` | contact force from tactile sensor |
+| `/tactile/contact` | `std_msgs/msg/Bool` | contact detected |
+| `/tactile/slip` | `std_msgs/msg/Float32` | slip probability |
+| `/task_plan` | `std_msgs/msg/String` | JSON subtask plan from LLM |
+| `/task_plan/current` | `std_msgs/msg/Int32` | current subtask index |
 
 ### Joints
 
@@ -268,10 +373,25 @@ ros2 run vla_policy octo_policy --ros-args \
 - [x] Data collection / dataset with `ros2 bag` + vision teleop
 - [x] Wire the Octo node to a real pick-and-place scene (IK action mapping)
 - [x] End-to-end pick-and-place driven by the policy in simulation
-- [ ] (Optional) sim-to-real transfer to the physical SO-ARM100
+- [x] OpenVLA policy node (`openvla_policy`, drop-in Octo replacement)
+- [x] SAM 2 zero-shot object segmentation (`sam2_segmentation`)
+- [x] Diffusion Policy for stochastic action generation (`diffusion_policy`)
+- [x] LLM task decomposition (`task_decomposer`, language -> subtask plan)
+- [x] RGB-D depth camera support (`pick_place_depth.world`)
+- [x] Domain randomization world (`domain_randomized.world`)
+- [x] 3D point cloud processing + grasp pose generation (`pointcloud_processor`)
+- [x] Tactile sensing integration (`tactile_sensing`, simulated/GelSight/DIGIT)
+- [x] Isaac Sim configuration (`isaac_sim.yaml`, `isaac_sim.launch.py`)
+- [ ] Sim-to-real transfer to the physical SO-ARM100
 
 ## References
 
 * [SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100) — TheRobotStudio
 * [Octo](https://octo-models.github.io/) — Octo VLA
+* [OpenVLA](https://openvla.github.io/) — OpenVLA 7B VLA
+* [SAM 2](https://github.com/facebookresearch/sam2) — Segment Anything Model 2
+* [Diffusion Policy](https://diffusion-policy.cs.columbia.edu/) — Chi et al.
+* [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO) — Text-prompted detection
+* [Isaac Sim](https://developer.nvidia.com/isaac-sim) — NVIDIA photorealistic sim
+* [Isaac ROS](https://developer.nvidia.com/isaac-ros) — GPU-accelerated ROS 2
 * [ros_gz](https://github.com/gazebosim/ros_gz) — Gazebo ROS integration
