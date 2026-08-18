@@ -5,9 +5,14 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, TextSubstitution
+from launch.substitutions import (
+    Command,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -16,27 +21,22 @@ def generate_launch_description():
 
     pkg_share = get_package_share_directory(package_name)
 
-    world_arg = DeclareLaunchArgument(
-        "world",
-        default_value="empty.world",
-        description="World file name (e.g. empty.world, pick_place.world)"
-    )
-
     urdf_file = os.path.join(
         pkg_share,
         "urdf",
         "so100.urdf.xacro"
     )
 
-    world_file = PathJoinSubstitution([
-        pkg_share,
-        "worlds",
-        LaunchConfiguration("world")
-    ])
+    world_arg = DeclareLaunchArgument(
+        "world",
+        default_value="pick_place.world",
+        description="World file to load (pick_place.world or empty.world)"
+    )
 
-    gz_args = PathJoinSubstitution([
-        TextSubstitution(text="-r "),
-        world_file
+    world_file = PathJoinSubstitution([
+        FindPackageShare(package_name),
+        "worlds",
+        LaunchConfiguration("world"),
     ])
 
     # =========================================================
@@ -52,7 +52,7 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "gz_args": gz_args
+            "gz_args": ["-r ", world_file]
         }.items()
     )
 
@@ -65,6 +65,20 @@ def generate_launch_description():
         executable="parameter_bridge",
         arguments=[
             "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+        ],
+        output="screen"
+    )
+
+    # =========================================================
+    # Gazebo -> ROS 2 camera bridge
+    # =========================================================
+
+    camera_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            "/image@sensor_msgs/msg/Image[gz.msgs.Image",
+            "/image/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
         ],
         output="screen"
     )
@@ -161,6 +175,7 @@ def generate_launch_description():
         world_arg,
         gazebo,
         clock_bridge,
+        camera_bridge,
         robot_state_publisher,
         spawn_robot,
         joint_state_broadcaster,
