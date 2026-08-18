@@ -147,6 +147,7 @@ def generate_launch_description():
             "--controller-manager",
             "/controller_manager"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
     )
 
@@ -162,6 +163,7 @@ def generate_launch_description():
             "--controller-manager",
             "/controller_manager"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
     )
 

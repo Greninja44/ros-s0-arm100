@@ -3,6 +3,8 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro"
        name="so100">
 
+  <xacro:include filename="$(find so100_description)/urdf/gazebo.xacro" />
+
   <!-- ========================================================= -->
   <!-- MATERIALS                                                  -->
   <!-- ========================================================= -->
@@ -508,6 +510,7 @@
     <plugin
       filename="gz_ros2_control-system"
       name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find so100_description)/config/controllers.yaml</parameters>
     </plugin>
 
   </gazebo>
