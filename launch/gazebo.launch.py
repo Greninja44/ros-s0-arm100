@@ -3,9 +3,9 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -16,17 +16,28 @@ def generate_launch_description():
 
     pkg_share = get_package_share_directory(package_name)
 
+    world_arg = DeclareLaunchArgument(
+        "world",
+        default_value="empty.world",
+        description="World file name (e.g. empty.world, pick_place.world)"
+    )
+
     urdf_file = os.path.join(
         pkg_share,
         "urdf",
         "so100.urdf.xacro"
     )
 
-    world_file = os.path.join(
+    world_file = PathJoinSubstitution([
         pkg_share,
         "worlds",
-        "empty.world"
-    )
+        LaunchConfiguration("world")
+    ])
+
+    gz_args = PathJoinSubstitution([
+        TextSubstitution(text="-r "),
+        world_file
+    ])
 
     # =========================================================
     # Gazebo Harmonic
@@ -41,7 +52,7 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "gz_args": f"-r {world_file}"
+            "gz_args": gz_args
         }.items()
     )
 
@@ -122,6 +133,7 @@ def generate_launch_description():
             "--controller-manager",
             "/controller_manager"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
     )
 
@@ -137,6 +149,7 @@ def generate_launch_description():
             "--controller-manager",
             "/controller_manager"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
     )
 
@@ -145,6 +158,7 @@ def generate_launch_description():
     # =========================================================
 
     return LaunchDescription([
+        world_arg,
         gazebo,
         clock_bridge,
         robot_state_publisher,
