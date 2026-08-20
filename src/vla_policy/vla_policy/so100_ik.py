@@ -78,6 +78,11 @@ def _rot_rpy(r, p, y):
     return _rot_z(y) @ _rot_y(p) @ _rot_x(r)
 
 
+def rotation_from_rpy(roll, pitch, yaw):
+    """Public wrapper: roll/pitch/yaw (radians) -> 3x3 rotation matrix."""
+    return _rot_rpy(roll, pitch, yaw)
+
+
 def _rot_axis(axis, theta):
     if axis == (1, 0, 0):
         return _rot_x(theta)
@@ -178,3 +183,58 @@ def solve_ik(
 
     q, pos_err, orient_err, _ = best
     return list(q), pos_err, orient_err, pos_err <= pos_tolerance
+
+
+def _rotation_log(R):
+    """Axis-angle (rotation vector) for a rotation matrix, via the log map."""
+    cos_theta = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+    if theta < 1e-8:
+        return np.zeros(3)
+    axis = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    return axis * (theta / (2.0 * np.sin(theta)))
+
+
+def solve_pose_ik(target_pos, target_rot, seed, max_iter=100, damping=0.02):
+    """Single-start damped-least-squares IK for a full 6-DOF pose.
+
+    Used for incremental Cartesian tracking (see octo_policy_node.py /
+    vla_pick_place.py) where the target is only a small delta from the
+    current pose and ``seed`` is the current joint state, so a single
+    local solve from continuity is both faster and more appropriate than
+    the multi-start search in ``solve_ik``.
+
+    A 5-DOF arm generally can't match an arbitrary 6-DOF pose exactly;
+    this converges to the closest reachable pose in a least-squares
+    sense; check the returned errors against your own tolerance.
+
+    Returns (joint_values, pos_error, rot_error) -- rot_error is the
+    norm of the axis-angle error, in radians.
+    """
+    target_pos = np.asarray(target_pos, dtype=float)
+    target_rot = np.asarray(target_rot, dtype=float)
+    q = np.array(seed, dtype=float)
+
+    def error(q):
+        T = fk(q)
+        pos_err = T[:3, 3] - target_pos
+        rot_err = -_rotation_log(target_rot @ T[:3, :3].T)
+        return np.concatenate([pos_err, rot_err])
+
+    for _ in range(max_iter):
+        e = error(q)
+        if np.linalg.norm(e) < 1e-6:
+            break
+        J = np.zeros((6, 5))
+        eps = 1e-6
+        for i in range(5):
+            dq = q.copy()
+            dq[i] += eps
+            J[:, i] = (error(dq) - e) / eps
+        step = np.linalg.solve(J.T @ J + damping * np.eye(5), -J.T @ e)
+        q = q + np.clip(step, -0.3, 0.3)
+        for i, (lo, hi) in enumerate(_SOLVE_LIMITS):
+            q[i] = np.clip(q[i], lo, hi)
+
+    e = error(q)
+    return list(q), float(np.linalg.norm(e[:3])), float(np.linalg.norm(e[3:]))
