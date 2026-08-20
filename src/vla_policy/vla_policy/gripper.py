@@ -61,7 +61,9 @@ class Gripper(Node):
         goal.trajectory.joint_names = [GRIPPER_JOINT]
         point = JointTrajectoryPoint()
         point.positions = [float(position)]
-        point.time_from_start = Duration(sec=duration)
+        point.time_from_start = Duration(
+            sec=int(duration), nanosec=int((duration % 1) * 1e9)
+        )
         goal.trajectory.points = [point]
 
         self.get_logger().info(
@@ -77,14 +79,17 @@ class Gripper(Node):
 
         result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=30.0)
-        status = result_future.result().status
-        return status == GoalStatus.STATUS_SUCCEEDED
+        result = result_future.result()
+        if result is None:
+            self.get_logger().error("Timed out waiting for gripper trajectory result")
+            return False
+        return result.status == GoalStatus.STATUS_SUCCEEDED
 
-    def open(self, duration=1.0):
+    def open(self, duration=2.5):
         """Fully open the gripper. Returns True on success."""
         return self._send_position(self.open_position, duration)
 
-    def close(self, duration=1.0):
+    def close(self, duration=2.5):
         """Fully close the gripper. Returns True on success."""
         return self._send_position(self.close_position, duration)
 

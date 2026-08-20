@@ -6,6 +6,26 @@
   <xacro:include filename="$(find so100_description)/urdf/gazebo.xacro" />
 
   <!-- ========================================================= -->
+  <!-- WORLD ANCHOR                                               -->
+  <!--                                                             -->
+  <!-- "base" previously had no joint tying it to anything static, -->
+  <!-- so it was a free-floating rigid body: gravity/reaction      -->
+  <!-- torques from the arm's own motion would slide or topple it. -->
+  <!-- A URDF link literally named "world", fixed-jointed to the   -->
+  <!-- root link, is recognized by the URDF->SDF conversion used   -->
+  <!-- by ros_gz_sim/robot_state_publisher and welds that root     -->
+  <!-- link rigidly to the simulation's static world frame.        -->
+  <!-- ========================================================= -->
+
+  <link name="world"/>
+
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ========================================================= -->
   <!-- MATERIALS                                                  -->
   <!-- ========================================================= -->
 
@@ -448,6 +468,31 @@
       upper="2.0"
       effort="35"
       velocity="1"/>
+
+  </joint>
+
+
+  <!-- ========================================================= -->
+  <!-- GRIPPER TCP (fixed) -->
+  <!--                                                             -->
+  <!-- The "gripper" link's own origin is ~9.5cm from the actual  -->
+  <!-- pinch point between the fixed and moving jaw (measured from -->
+  <!-- the STL meshes). IK targeting "gripper" directly places the -->
+  <!-- link origin at the goal, not the fingers, so grasps miss.  -->
+  <!-- This frame sits at the pinch point so planners can target  -->
+  <!-- the point that actually needs to touch the object.         -->
+  <!-- ========================================================= -->
+
+  <link name="gripper_tcp"/>
+
+  <joint name="gripper_tcp_joint" type="fixed">
+
+    <parent link="gripper"/>
+    <child link="gripper_tcp"/>
+
+    <origin
+      xyz="-0.019 -0.095 0"
+      rpy="0 0 0"/>
 
   </joint>
 
