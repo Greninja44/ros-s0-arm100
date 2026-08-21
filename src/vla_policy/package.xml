@@ -4,7 +4,7 @@
   <name>vla_policy</name>
   <version>0.1.0</version>
   <description>Octo VLA pick-and-place policy nodes for the SO-100 arm in Gazebo Harmonic</description>
-  <maintainer email="batman@todo.todo">batman</maintainer>
+  <maintainer email="adarshvijaya22@gmail.com">adarsh</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
@@ -20,6 +20,8 @@
   <exec_depend>moveit_msgs</exec_depend>
   <exec_depend>shape_msgs</exec_depend>
   <exec_depend>rosbag2-storage-sqlite3</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

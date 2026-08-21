@@ -3,9 +3,9 @@
 <package format="3">
   <name>so100_description</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="batman@todo.todo">batman</maintainer>
-  <license>TODO: License declaration</license>
+  <description>SO-100 arm URDF, Gazebo world, and launch files for pick-and-place simulation</description>
+  <maintainer email="adarshvijaya22@gmail.com">adarsh</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
