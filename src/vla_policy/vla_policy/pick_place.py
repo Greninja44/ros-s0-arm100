@@ -30,17 +30,25 @@ from rclpy.parameter import Parameter
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Vector3
-from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import (
-    Constraints,
-    JointConstraint,
-    MotionPlanRequest,
-    WorkspaceParameters,
-)
 from std_msgs.msg import Header
 
 from vla_policy.gripper import Gripper
 from vla_policy.so100_ik import ARM_JOINTS, solve_ik
+
+try:
+    from moveit_msgs.action import MoveGroup
+    from moveit_msgs.msg import (
+        Constraints,
+        JointConstraint,
+        MotionPlanRequest,
+        WorkspaceParameters,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+    MoveGroup = None
+    Constraints = JointConstraint = MotionPlanRequest = WorkspaceParameters = None
+    _MOVEIT_IMPORT_ERROR = exc
+else:
+    _MOVEIT_IMPORT_ERROR = None
 
 HOME_POSITIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -52,6 +60,11 @@ IK_POS_TOLERANCE = 0.01
 class PickPlace(Node):
     def __init__(self):
         super().__init__("pick_place")
+        if _MOVEIT_IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "pick_place requires moveit_msgs. Install MoveIt ROS packages "
+                "and source the correct environment before running this node."
+            ) from _MOVEIT_IMPORT_ERROR
         self.set_parameters([Parameter("use_sim_time", value=True)])
 
         self.planning_time = self.declare_parameter(
