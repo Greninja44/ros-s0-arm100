@@ -23,7 +23,14 @@ Usage
     ros2 run vla_policy sam2_segmentation --ros-args \
         -p prompt:="red cube"
 
-    # mock mode (no GPU):
+    # mock mode (no SAM 2 / GPU install required): does real color-
+    # threshold detection + depth back-projection instead of running the
+    # actual SAM 2 model, so it still finds and localizes whichever
+    # colored object the prompt names (red/blue/green/yellow) rather
+    # than returning a hardcoded position. Good enough to validate and
+    # use the whole image -> mask -> 3D pose -> grasp pipeline without
+    # a checkpoint; swap to the real model by leaving mock:=false once
+    # SAM 2 + a checkpoint are installed (see _load_model()).
     ros2 run vla_policy sam2_segmentation --ros-args -p mock:=true
 """
 
@@ -57,6 +64,73 @@ def image_to_numpy(msg):
     return np.ascontiguousarray(arr)
 
 
+# Simple additive/subtractive color names a prompt like "red cube" or
+# "the blue block" can name -- classical substitute for a real
+# open-vocabulary detector when SAM 2 / Grounding DINO aren't installed
+# (see SAM2SegmentationNode._mock_detection). Each entry is a predicate
+# on an (H, W, 3) uint8 RGB image returning an (H, W) bool mask.
+_COLOR_DETECTORS = {
+    "red": lambda img: (
+        (img[:, :, 0].astype(int) - img[:, :, 1].astype(int) > 40)
+        & (img[:, :, 0].astype(int) - img[:, :, 2].astype(int) > 40)
+    ),
+    "blue": lambda img: (
+        (img[:, :, 2].astype(int) - img[:, :, 0].astype(int) > 40)
+        & (img[:, :, 2].astype(int) - img[:, :, 1].astype(int) > 40)
+    ),
+    "green": lambda img: (
+        (img[:, :, 1].astype(int) - img[:, :, 0].astype(int) > 40)
+        & (img[:, :, 1].astype(int) - img[:, :, 2].astype(int) > 40)
+    ),
+    "yellow": lambda img: (
+        (img[:, :, 0].astype(int) - img[:, :, 2].astype(int) > 40)
+        & (img[:, :, 1].astype(int) - img[:, :, 2].astype(int) > 40)
+        & (np.abs(img[:, :, 0].astype(int) - img[:, :, 1].astype(int)) < 40)
+    ),
+}
+
+
+def color_from_prompt(prompt):
+    """Pick the first known color name mentioned in a text prompt."""
+    prompt_lower = prompt.lower()
+    for name in _COLOR_DETECTORS:
+        if name in prompt_lower:
+            return name
+    return None
+
+
+def camera_optical_to_world(x_opt, y_opt, z_opt, camera_position, camera_pitch):
+    """Transform a point from the camera's optical frame to world frame.
+
+    ``(x_opt, y_opt, z_opt)`` follows the standard camera optical-frame
+    convention (X right, Y down, Z forward/depth), which is what
+    pinhole back-projection from a pixel + depth naturally produces.
+    The camera has no URDF/TF frame of its own (it's a standalone
+    sensor in the world file, not attached to the robot), so this
+    applies the sensor's known static world pose directly instead of
+    looking up a transform. Only pitch (rotation about world Y) is
+    modeled, matching the straight-down overhead camera every world
+    here uses; extend this if a world ever gives the camera roll/yaw.
+    """
+    # Optical frame -> the sensor link's own (X-forward/Y-left/Z-up)
+    # frame, via the standard REP 103 camera static transform.
+    link_x = z_opt
+    link_y = -x_opt
+    link_z = -y_opt
+
+    # Link frame -> world frame via the camera's pitch about world Y.
+    c, s = np.cos(camera_pitch), np.sin(camera_pitch)
+    world_dx = c * link_x + s * link_z
+    world_dy = link_y
+    world_dz = -s * link_x + c * link_z
+
+    return np.array([
+        camera_position[0] + world_dx,
+        camera_position[1] + world_dy,
+        camera_position[2] + world_dz,
+    ])
+
+
 class SAM2SegmentationNode(Node):
     def __init__(self):
         super().__init__("sam2_segmentation")
@@ -80,6 +154,20 @@ class SAM2SegmentationNode(Node):
             "confidence_thresh", 0.5
         ).value
         self.mock = self.declare_parameter("mock", False).value
+
+        # Static camera extrinsics (see worlds/pick_place_depth.world's
+        # overhead_camera): position in world frame, plus its downward
+        # pitch. The camera isn't part of the robot URDF, so there's no
+        # TF frame for it -- this is the only way to turn a depth pixel
+        # into a world-frame grasp target. Override these if the camera
+        # moves or a different world is used.
+        self.camera_position = [
+            self.declare_parameter(f"camera_{ax}", default).value
+            for ax, default in zip(("x", "y", "z"), (0.1, 0.1, 1.2))
+        ]
+        self.camera_pitch = self.declare_parameter(
+            "camera_pitch", np.pi / 2
+        ).value
 
         # ---- Publishers -----------------------------------------------------
         self._mask_pub = self.create_publisher(Image, "/sam2/mask", 10)
@@ -294,7 +382,7 @@ class SAM2SegmentationNode(Node):
         return pixel_boxes.numpy()
 
     def _compute_centroid(self, mask, depth, cam_info):
-        """Compute 3D centroid from mask + depth + camera intrinsics."""
+        """Compute the world-frame 3D centroid from mask + depth + intrinsics."""
         if depth is None or cam_info is None:
             return None
 
@@ -316,20 +404,34 @@ class SAM2SegmentationNode(Node):
         px = cam_info.k[2]
         py = cam_info.k[5]
 
-        x = (cx - px) * z / fx
-        y = (cy - py) * z / fy
+        x_opt = (cx - px) * z / fx
+        y_opt = (cy - py) * z / fy
 
-        return np.array([x, y, z])
+        return camera_optical_to_world(
+            x_opt, y_opt, z, self.camera_position, self.camera_pitch
+        )
 
     def _mock_detection(self, image, depth, cam_info):
-        """Simulate detection with a fake centroid for testing."""
-        h, w = image.shape[:2]
-        cx, cy = w // 2, h // 2
+        """Classical color-threshold stand-in for the real SAM 2 + Grounding
+        DINO pipeline: finds the object matching the color named in
+        ``prompt`` (red/blue/green/yellow) by simple RGB thresholding,
+        then back-projects its pixel centroid through the depth image
+        and camera intrinsics/pose the same way the real path does.
+        Runs the whole image -> mask -> 3D pose pipeline for real, just
+        with a much simpler (GPU-free) detector standing in for SAM 2.
+        """
+        color = color_from_prompt(self.prompt)
+        if color is None:
+            self.get_logger().warn(
+                f"No known color in prompt {self.prompt!r} "
+                f"(known: {sorted(_COLOR_DETECTORS)}); "
+                "no detection published."
+            )
+            return
 
-        mask = np.zeros((h, w), dtype=bool)
-        r = 30
-        yy, xx = np.ogrid[:h, :w]
-        mask[(xx - cx) ** 2 + (yy - cy) ** 2 < r ** 2] = True
+        mask = _COLOR_DETECTORS[color](image)
+        if not mask.any():
+            return
 
         mask_msg = Image()
         mask_msg.header = self._image_header
@@ -339,18 +441,22 @@ class SAM2SegmentationNode(Node):
         mask_msg.data = (mask.astype(np.uint8) * 255).tobytes()
         self._mask_pub.publish(mask_msg)
 
-        z = 0.8
-        if depth is not None and cam_info is not None:
-            z_val = depth[cy, cx]
-            if 0.1 < z_val < 5.0:
-                z = z_val
+        centroid = self._compute_centroid(mask, depth, cam_info)
+        if centroid is None:
+            return
 
         pose_msg = PoseStamped()
         pose_msg.header = self._image_header
         pose_msg.header.frame_id = "world"
-        pose_msg.pose.position = Point(x=0.25, y=0.0, z=z)
+        pose_msg.pose.position = Point(
+            x=float(centroid[0]), y=float(centroid[1]), z=float(centroid[2])
+        )
         pose_msg.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
         self._centroid_pub.publish(pose_msg)
+        self.get_logger().info(
+            f"Detected {color!r} object at world "
+            f"({centroid[0]:.3f}, {centroid[1]:.3f}, {centroid[2]:.3f})"
+        )
 
 
 def main():

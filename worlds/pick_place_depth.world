@@ -201,12 +201,16 @@
     <!-- ========================================================= -->
     <!-- Overhead RGB-D camera (RealSense D435-style)               -->
     <!-- Publishes: color image + depth image + camera_info         -->
-    <!-- + point cloud (all bridged to ROS by gazebo.launch.py)     -->
+    <!-- (bridged to ROS by gazebo.launch.py)                       -->
+    <!--                                                             -->
+    <!-- pitch=pi/2 points it straight down at the scene -- the      -->
+    <!-- original identity pose left it facing the horizon, so it   -->
+    <!-- never actually saw the table/objects below it.              -->
     <!-- ========================================================= -->
 
     <model name="overhead_camera">
       <static>true</static>
-      <pose>0.1 0.1 1.2 0 0 0</pose>
+      <pose>0.1 0.1 1.2 0 1.5707963 0</pose>
 
       <link name="link">
         <visual name="visual">
@@ -257,33 +261,6 @@
               <far>10.0</far>
             </clip>
           </camera>
-        </sensor>
-
-        <!-- Point cloud from depth -->
-        <sensor name="point_cloud" type="gpu_lidar">
-          <always_on>1</always_on>
-          <update_rate>15</update_rate>
-          <topic>point_cloud</topic>
-          <lidar>
-            <scan>
-              <horizontal>
-                <samples>640</samples>
-                <resolution>1</resolution>
-                <min_angle>-0.5236</min_angle>
-                <max_angle>0.5236</max_angle>
-              </horizontal>
-              <vertical>
-                <samples>480</samples>
-                <resolution>1</resolution>
-                <min_angle>-0.3927</min_angle>
-                <max_angle>0.3927</max_angle>
-              </vertical>
-            </scan>
-            <range>
-              <min>0.1</min>
-              <max>10.0</max>
-            </range>
-          </lidar>
         </sensor>
 
       </link>

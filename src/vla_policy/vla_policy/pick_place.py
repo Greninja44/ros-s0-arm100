@@ -29,18 +29,26 @@ from rclpy.action import ActionClient
 from rclpy.parameter import Parameter
 
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import Vector3
-from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import (
-    Constraints,
-    JointConstraint,
-    MotionPlanRequest,
-    WorkspaceParameters,
-)
+from geometry_msgs.msg import PoseStamped, Vector3
 from std_msgs.msg import Header
 
 from vla_policy.gripper import Gripper
 from vla_policy.so100_ik import ARM_JOINTS, solve_ik
+
+try:
+    from moveit_msgs.action import MoveGroup
+    from moveit_msgs.msg import (
+        Constraints,
+        JointConstraint,
+        MotionPlanRequest,
+        WorkspaceParameters,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+    MoveGroup = None
+    Constraints = JointConstraint = MotionPlanRequest = WorkspaceParameters = None
+    _MOVEIT_IMPORT_ERROR = exc
+else:
+    _MOVEIT_IMPORT_ERROR = None
 
 HOME_POSITIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -52,6 +60,11 @@ IK_POS_TOLERANCE = 0.01
 class PickPlace(Node):
     def __init__(self):
         super().__init__("pick_place")
+        if _MOVEIT_IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "pick_place requires moveit_msgs. Install MoveIt ROS packages "
+                "and source the correct environment before running this node."
+            ) from _MOVEIT_IMPORT_ERROR
         self.set_parameters([Parameter("use_sim_time", value=True)])
 
         self.planning_time = self.declare_parameter(
@@ -72,6 +85,19 @@ class PickPlace(Node):
             self.declare_parameter(f"place_{ax}", default).value
             for ax, default in zip(("x", "y", "z"), (-0.20, 0.0, 0.105))
         ]
+
+        # When set, the object position above is a fallback: run() waits
+        # for one detection from the vision pipeline (see
+        # sam2_segmentation.py) and grasps wherever it actually found the
+        # object instead of the fixed object_x/y/z parameters.
+        self.use_vision = self.declare_parameter("use_vision", False).value
+        self.vision_topic = self.declare_parameter(
+            "vision_topic", "/sam2/centroid"
+        ).value
+        self.vision_timeout = self.declare_parameter(
+            "vision_timeout", 10.0
+        ).value
+        self._vision_pose = None
 
         self.gripper = Gripper("gripper")
         self._move_group = ActionClient(self, MoveGroup, "/move_action")
@@ -189,10 +215,52 @@ class PickPlace(Node):
         return self._plan_and_execute(label)
 
     # ------------------------------------------------------------------ #
+    # Vision                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _wait_for_vision_pose(self):
+        """Block (spinning) for one detection on ``vision_topic``.
+
+        Returns True and updates ``self.object_position`` on success,
+        False on timeout (leaving object_position at its parameter
+        default so callers can choose to fail or fall back).
+        """
+        sub = self.create_subscription(
+            PoseStamped, self.vision_topic, self._vision_pose_cb, 10
+        )
+        self.get_logger().info(
+            f"use_vision: waiting up to {self.vision_timeout}s for a "
+            f"detection on {self.vision_topic} ..."
+        )
+        deadline = self.get_clock().now().nanoseconds / 1e9 + self.vision_timeout
+        while self._vision_pose is None:
+            rclpy.spin_once(self, timeout_sec=0.2)
+            if self.get_clock().now().nanoseconds / 1e9 > deadline:
+                self.get_logger().error(
+                    f"No detection received on {self.vision_topic} within "
+                    f"{self.vision_timeout}s; is sam2_segmentation running?"
+                )
+                self.destroy_subscription(sub)
+                return False
+
+        self.object_position = list(self._vision_pose)
+        self.get_logger().info(f"Vision detection: object at {self.object_position}")
+        self.destroy_subscription(sub)
+        return True
+
+    def _vision_pose_cb(self, msg):
+        if self._vision_pose is None:
+            p = msg.pose.position
+            self._vision_pose = (p.x, p.y, p.z)
+
+    # ------------------------------------------------------------------ #
     # Pick & place cycle                                                  #
     # ------------------------------------------------------------------ #
 
     def run(self):
+        if self.use_vision and not self._wait_for_vision_pose():
+            return
+
         obj = self.object_position
         place = self.place_position
         above_obj = [obj[0], obj[1], obj[2] + self.approach_offset]
