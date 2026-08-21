@@ -30,12 +30,31 @@ The pipeline works like this:
 
 ## Workspace layout
 
+The `so100_description` package lives at the workspace root (not under `src/`).
+All other packages are under `src/`. Because colcon stops recursing into a
+directory as soon as it finds a package there, a root-level package hides
+everything under `src/` from a default `colcon build`; `colcon_defaults.yaml`
+tells colcon to also crawl `src/` so all three packages are discovered.
+
 ```
-pick_place_ws/
+pick_place_ws/                        # so100_description package root
+├── colcon_defaults.yaml              # tells colcon to also crawl src/
+├── CMakeLists.txt
+├── package.xml
+├── urdf/                             # Robot model (xacro)
+│   ├── so100.urdf.xacro
+│   └── gazebo.xacro
+├── meshes/so100/                     # 13 STL mesh files
+├── config/controllers.yaml           # ros2_control controller config
+├── launch/                           # Gazebo + RViz display launch files
+│   ├── gazebo.launch.py
+│   └── display.launch.py
+├── worlds/                           # Gazebo world files
+│   ├── empty.world
+│   └── pick_place.world
 ├── src/
-│   ├── so100_description/     # URDF/xacro, meshes, Gazebo launch + controllers
-│   ├── so100_moveit_config/   # MoveIt 2 config, SRDF, kinematics, RViz setup
-│   └── vla_policy/            # Octo policy node + gripper + pick-and-place demo
+│   ├── so100_moveit_config/          # MoveIt 2 config package
+│   └── vla_policy/                   # Octo policy + teleop + data collection
 ├── build/
 ├── install/
 └── log/
@@ -43,19 +62,40 @@ pick_place_ws/
 
 ### so100_description
 
-* `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin
+* `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin, box
+  collision on both gripper jaws (needed for reliable contact — see below),
+  and a `DetachableJoint` plugin that lets the gripper rigidly grab the pick
+  cube on demand (see `gripper.py`)
 * `urdf/gazebo.xacro` — link friction / gazebo properties
 * `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock and
   the camera, starts RSP and loads the controllers
+* `launch/display.launch.py` — lightweight RViz display (RSP + joint state
+  publisher GUI, no Gazebo needed)
 * `config/controllers.yaml` — `joint_state_broadcaster` + `arm_controller`
-* `worlds/pick_place.world` — ground plane, sun, a red pick cube, a green place
-  pad and an overhead camera (default world)
-* `worlds/empty.world` — ground plane + sun
+* `worlds/pick_place.world` — a table, a red pick cube at `(0.20, 0, 0.095)`,
+  a green place pad at `(-0.20, 0, 0.105)` and an overhead camera publishing
+  `/image`
+* `worlds/empty.world` — ground plane + sun (default world)
+
+Grasping note: the gripper's fingers are thin enough that ODE's mesh/box
+collision against the pick cube doesn't reliably register contact, so
+closing the jaws can't hold anything by friction alone. `gripper.py`'s
+`close()`/`open()` additionally trigger a Gazebo `DetachableJoint` plugin
+(rigidly attaching/detaching the cube to the gripper) as the standard
+workaround for this — see the comments in `so100.urdf.xacro` and
+`gripper.py` for details.
 
 ### so100_moveit_config
 
-MoveIt 2 package generated for so100: SRDF, kinematics, joint limits,
-MoveIt + RViz launch files.
+MoveIt 2 package generated for so100. Includes:
+
+* `config/so100.srdf` — semantic robot description (joint groups, named poses)
+* `config/kinematics.yaml` — KDL solver for the `arm` group
+* `config/joint_limits.yaml` — velocity limits and scaling factors
+* `config/moveit_controllers.yaml` — simple controller manager config
+* `config/initial_positions.yaml` — default joint positions (all zeros)
+* `config/pilz_cartesian_limits.yaml` — Pilz planner cartesian limits
+* 8 launch files including `demo.launch.py` (move_group + RViz)
 
 ### vla_policy
 
@@ -68,7 +108,8 @@ ROS 2 Python package with the policy and grasp nodes:
   joint positions via KDL inverse kinematics. Octo loads lazily; `mock:=true`
   tests the loop without a GPU/checkpoint.
 * `gripper.py` — `Gripper` class (open/close via `FollowJointTrajectory`) plus
-  the `gripper_demo` node.
+  the `gripper_demo` node. `close()`/`open()` also attach/detach the pick
+  cube via the `DetachableJoint` plugin (see the grasping note above).
 * `pick_place.py` — `pick_place` node: full cycle (home -> pre-grasp -> approach
   -> close -> lift -> place -> open) planned through the `move_group` action.
 * `teleop_keyboard.py` — `teleop_keyboard` node: keyboard teleoperation for the
@@ -85,10 +126,22 @@ ROS 2 Python package with the policy and grasp nodes:
 
 * Ubuntu 24.04
 * ROS 2 Jazzy
-* Gazebo Harmonic (`ros_gz_sim`, `ros_gz_bridge`, `ros_gz_ros2_control`)
+* Gazebo Harmonic (`ros_gz_sim`, `ros_gz_bridge`, `gz_ros2_control`)
 * `ros-jazzy-ros2-control` / `ros-jazzy-ros2-controllers`
 * `ros-jazzy-moveit`
 * xacro
+
+### Running under WSL2
+
+Gazebo Transport's default multicast discovery can fail under WSL2 (a dead
+`eth0` interface alongside the real one causes repeated "Network is
+unreachable" / "No such device" errors and prevents Gazebo from talking to
+itself). Export these before launching anything Gazebo-related:
+
+```bash
+export GZ_IP=127.0.0.1
+export GZ_PARTITION=localhost
+```
 
 ## Build
 
@@ -107,13 +160,15 @@ source install/setup.bash
 ros2 launch so100_description gazebo.launch.py
 ```
 
-The default world (`pick_place.world`) spawns a red cube to pick at
-`(0.25, 0.0, 0.015)` and a green place pad at `(-0.05, 0.25, 0.0025)`, matching
-the `pick_place` defaults. To load the plain world instead:
+The default world is `empty.world` (ground plane + sun). To spawn the
+pick-and-place scene instead:
 
 ```bash
-ros2 launch so100_description gazebo.launch.py world:=empty.world
+ros2 launch so100_description gazebo.launch.py world:=pick_place.world
 ```
+
+The `pick_place.world` spawns a table with a red cube at `(0.20, 0, 0.095)`
+resting on top of it, and a green place pad at `(-0.20, 0, 0.105)`.
 
 Verify the controllers are active:
 
@@ -128,7 +183,16 @@ Check the overhead camera image (bridged from Gazebo to `/image`):
 ros2 run rqt_image_view rqt_image_view
 ```
 
-### 2. With MoveIt 2 (motion planning in RViz)
+### 2. RViz display only (no Gazebo)
+
+```bash
+ros2 launch so100_description display.launch.py
+```
+
+Opens RViz with the robot model via `robot_state_publisher` and a joint state
+publisher GUI. Useful for inspecting the URDF without spinning up Gazebo.
+
+### 3. With MoveIt 2 (motion planning in RViz)
 
 ```bash
 # terminal 1 — simulation
@@ -138,7 +202,7 @@ ros2 launch so100_description gazebo.launch.py
 ros2 launch so100_moveit_config demo.launch.py
 ```
 
-### 3. Gripper test
+### 4. Gripper test
 
 ```bash
 # terminal 1 — simulation
@@ -148,7 +212,7 @@ ros2 launch so100_description gazebo.launch.py
 ros2 run vla_policy gripper_demo
 ```
 
-### 4. Pick-and-place demo (MoveIt)
+### 5. Pick-and-place demo (MoveIt)
 
 ```bash
 # terminal 1 — simulation
@@ -158,14 +222,14 @@ ros2 launch so100_description gazebo.launch.py
 ros2 launch so100_moveit_config demo.launch.py
 
 # terminal 3 — plan + execute a full pick-and-place cycle
-ros2 run vla_policy pick_place --ros-args \
-  -p object_x:=0.25 -p object_y:=0.0 -p object_z:=0.05 \
-  -p place_x:=-0.05 -p place_y:=0.25 -p place_z:=0.05
+ros2 run vla_policy pick_place
 ```
 
-Adjust the object/place positions to match whatever you spawn in the world.
+`pick_place`'s `object_*`/`place_*` parameters already default to the
+`pick_place.world` cube/pad positions above; pass `--ros-args -p object_x:=...`
+etc. to override them if you spawn something at a different pose.
 
-### 5. Octo VLA policy
+### 6. Octo VLA policy
 
 ```bash
 # terminal 1 — simulation
@@ -182,7 +246,7 @@ ros2 run vla_policy octo_policy --ros-args -p mock:=true
 The `mock` mode skips Octo and streams a small scripted motion so the
 image -> joint_states -> arm_controller loop can be verified first.
 
-### 6. Keyboard teleoperation
+### 7. Keyboard teleoperation
 
 ```bash
 # terminal 1 — simulation
@@ -195,7 +259,7 @@ ros2 run vla_policy teleop_keyboard
 #        r/f (wrist_flex), z/x (wrist_roll), o/p (gripper open/close)
 ```
 
-### 7. Data collection
+### 8. Data collection
 
 ```bash
 # terminal 1 — simulation
@@ -214,7 +278,7 @@ The bag contains `/image`, `/joint_states` (observations) and `/action`
 (commanded joint positions). An `episode.yaml` metadata file is written
 alongside the bag.
 
-### 8. End-to-end VLA pick-and-place
+### 9. End-to-end VLA pick-and-place
 
 ```bash
 # terminal 1 — simulation
@@ -231,7 +295,7 @@ ros2 run vla_policy vla_pick_place --ros-args -p mock:=true
 The node runs the policy in a closed loop: observe -> predict -> IK ->
 execute -> repeat, with automatic gripper open/close heuristics.
 
-### 9. Octo with IK (Cartesian control)
+### 10. Octo with IK (Cartesian control)
 
 The `octo_policy` node now supports Cartesian control mode where Octo's
 end-effector deltas are converted to joint positions via KDL IK:

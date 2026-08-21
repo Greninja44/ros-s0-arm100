@@ -1,0 +1,6 @@
+build:
+  base-paths: ['.', 'src']
+list:
+  base-paths: ['.', 'src']
+test:
+  base-paths: ['.', 'src']

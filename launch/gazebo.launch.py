@@ -3,16 +3,12 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import (
-    Command,
-    LaunchConfiguration,
-    PathJoinSubstitution,
-)
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression, TextSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -20,6 +16,28 @@ def generate_launch_description():
     package_name = "so100_description"
 
     pkg_share = get_package_share_directory(package_name)
+
+    world_arg = DeclareLaunchArgument(
+        "world",
+        default_value="empty.world",
+        description="World file name (e.g. empty.world, pick_place.world)"
+    )
+
+    spawn_z_arg = DeclareLaunchArgument(
+        "spawn_z",
+        default_value="0.13",
+        description="Robot base spawn height. pick_place.world has a table "
+                     "with its top surface at z=0.08 (default here is "
+                     "0.08 + the same 0.05 ground clearance used on the "
+                     "bare ground plane); pass spawn_z:=0.05 with "
+                     "world:=empty.world instead."
+    )
+
+    headless_arg = DeclareLaunchArgument(
+        "headless",
+        default_value="false",
+        description="Run Gazebo server-only, without the GUI client"
+    )
 
     urdf_file = os.path.join(
         pkg_share,
@@ -32,18 +50,21 @@ def generate_launch_description():
         "config",
         "controllers.yaml"
     )
-
-    world_arg = DeclareLaunchArgument(
-        "world",
-        default_value="pick_place.world",
-        description="World file to load (pick_place.world or empty.world)"
-    )
-
     world_file = PathJoinSubstitution([
-        FindPackageShare(package_name),
+        pkg_share,
         "worlds",
-        LaunchConfiguration("world"),
+        LaunchConfiguration("world")
     ])
+
+    headless_flag = PythonExpression([
+        "'-s ' if '", LaunchConfiguration("headless"), "' == 'true' else ''"
+    ])
+
+    gz_args = [
+        headless_flag,
+        TextSubstitution(text="-r "),
+        world_file
+    ]
 
     # =========================================================
     # Gazebo Harmonic
@@ -58,7 +79,7 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "gz_args": ["-r ", world_file]
+            "gz_args": gz_args
         }.items()
     )
 
@@ -183,7 +204,7 @@ def generate_launch_description():
             "-y",
             "0",
             "-z",
-            "0.05"
+            LaunchConfiguration("spawn_z")
         ],
         output="screen"
     )
@@ -198,8 +219,11 @@ def generate_launch_description():
         arguments=[
             "joint_state_broadcaster",
             "--controller-manager",
-            "/controller_manager"
+            "/controller_manager",
+            "--controller-manager-timeout",
+            "30"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
     )
 
@@ -213,9 +237,37 @@ def generate_launch_description():
         arguments=[
             "arm_controller",
             "--controller-manager",
-            "/controller_manager"
+            "/controller_manager",
+            "--controller-manager-timeout",
+            "30"
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen"
+    )
+
+    # =========================================================
+    # Sequencing
+    # =========================================================
+    #
+    # The joint_state_broadcaster/arm_controller spawners race each other
+    # and the controller_manager (loaded by the gz_ros2_control plugin only
+    # once the robot is spawned) if launched all at once, occasionally
+    # timing out and dying before the controller_manager service is even
+    # up. Chain them off process-exit events instead so each spawner only
+    # starts once the previous step has actually finished.
+
+    spawn_joint_state_broadcaster = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_robot,
+            on_exit=[joint_state_broadcaster]
+        )
+    )
+
+    spawn_arm_controller = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster,
+            on_exit=[arm_controller]
+        )
     )
 
     # =========================================================
@@ -224,6 +276,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         world_arg,
+        spawn_z_arg,
+        headless_arg,
         gazebo,
         clock_bridge,
         camera_bridge,
@@ -231,6 +285,6 @@ def generate_launch_description():
         robot_state_publisher,
         controller_manager,
         spawn_robot,
-        joint_state_broadcaster,
-        arm_controller,
+        spawn_joint_state_broadcaster,
+        spawn_arm_controller,
     ])

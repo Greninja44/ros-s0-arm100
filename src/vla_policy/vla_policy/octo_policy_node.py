@@ -16,8 +16,8 @@ Control modes
   positions (works with policies trained on joint-space datasets).
 * ``control_mode:=cartesian`` — the action chunk is treated as Cartesian
   end-effector deltas (dx, dy, dz, droll, dpitch, dyaw).  Each delta is
-  converted to joint positions via KDL inverse kinematics so that the arm
-  tracks the desired Cartesian trajectory.
+  converted to joint positions via numerical inverse kinematics (see
+  so100_ik.py) so that the arm tracks the desired Cartesian trajectory.
 
 Gripper
 -------
@@ -33,7 +33,6 @@ Notes
   control loop can be tested without a GPU / torch.
 """
 
-import os
 import threading
 
 import numpy as np
@@ -55,6 +54,8 @@ from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
 from sensor_msgs.msg import Image, JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
+
+from vla_policy import so100_ik
 
 ARM_JOINTS = [
     "shoulder_pan",
@@ -90,109 +91,12 @@ def image_to_numpy(msg):
     return np.ascontiguousarray(arr)
 
 
-# ------------------------------------------------------------------ #
-# KDL helpers                                                         #
-# ------------------------------------------------------------------ #
-
-def _build_kdl_chain_from_urdf(urdf_path):
-    """Parse a URDF file and return a KDL Chain from base_link -> gripper."""
-    try:
-        from kdl_parser import treeFromUrdfFile
-    except ImportError:
-        return None
-
-    ok, tree = treeFromUrdfFile(urdf_path)
-    if not ok:
-        return None
-
-    # The chain runs base -> shoulder -> upper_arm -> lower_arm -> wrist -> gripper
-    chain = tree.getChain("base", "gripper")
-    return chain
-
-
-def _kdl_fk(chain, q):
-    """Forward kinematics: return the 4x4 pose matrix for joint config q."""
-    from PyKDL import ChainFkSolverPos_recursive, Frame, Rotation, Vector
-
-    fk_solver = ChainFk_solverPos_recursive(chain)
-    frame = Frame()
-    fk_solver.JntToCart(q, frame)
-    return _frame_to_matrix(frame)
-
-
-def _frame_to_matrix(frame):
-    """Convert a PyKDL Frame to a 4x4 numpy array."""
-    R = np.array(frame.M)
-    p = np.array(frame.p)
-    T = np.eye(4)
-    T[:3, :3] = R
-    T[:3, 3] = p
-    return T
-
-
-def _matrix_to_frame(T):
-    """Convert a 4x4 numpy array to a PyKDL Frame."""
-    from PyKDL import Frame, Rotation, Vector
-
-    R = Rotation(
-        float(T[0, 0]), float(T[0, 1]), float(T[0, 2]),
-        float(T[1, 0]), float(T[1, 1]), float(T[1, 2]),
-        float(T[2, 0]), float(T[2, 1]), float(T[2, 2]),
-    )
-    p = Vector(float(T[0, 3]), float(T[1, 3]), float(T[2, 3]))
-    return Frame(R, p)
-
-
-def _kdl_ik(chain, q_init, T_desired, joint_limits, max_iter=100, eps=1e-5):
-    """Numerical IK using the KDL pseudo-inverse (Jacobian transpose) method.
-
-    Returns the joint solution or None if convergence fails.
-    """
-    from PyKDL import (
-        ChainFkSolverPos_recursive,
-        ChainIkSolverVel_pinv,
-        ChainIkSolverPos_NR,
-        JntArray,
-    )
-
-    fk_solver = ChainFkSolverPos_recursive(chain)
-    ik_vel_solver = ChainIkSolverVel_pinv(chain)
-    ik_solver = ChainIkSolverPos_NR(
-        chain, fk_solver, ik_vel_solver, maxiter=max_iter, eps=eps
-    )
-
-    q_init_kdl = JntArray(len(q_init))
-    for i, v in enumerate(q_init):
-        q_init_kdl[i] = float(v)
-
-    q_out = JntArray(len(q_init))
-    target_frame = _matrix_to_frame(T_desired)
-
-    ret = ik_solver.CartToJnt(q_init_kdl, target_frame, q_out)
-    if ret < 0:
-        return None
-
-    result = np.array([q_out[i] for i in range(len(q_init))])
-
-    # Clamp to joint limits
-    for i in range(len(result)):
-        if joint_limits is not None:
-            result[i] = np.clip(result[i], joint_limits[i, 0], joint_limits[i, 1])
-
-    return result.astype(np.float64)
-
-
-# ------------------------------------------------------------------ #
-# Joint limits (from URDF)                                            #
-# ------------------------------------------------------------------ #
-
-ARM_JOINT_LIMITS = np.array([
-    [-2.0, 2.0],       # shoulder_pan
-    [-0.001, 3.5],     # shoulder_lift
-    [-3.14158, 0.001], # elbow_flex
-    [-2.5, 1.2],       # wrist_flex
-    [-3.14158, 3.14158], # wrist_roll
-], dtype=np.float64)
+# Cartesian IK (position + orientation tracking for the delta-action loop
+# below) is provided by so100_ik.py -- a self-contained numpy solver with
+# the chain's kinematics hardcoded, so no URDF file needs to be located
+# or parsed at runtime, and no PyKDL/kdl_parser dependency is needed
+# (kdl_parser_py isn't available on Jazzy, which silently broke this
+# entire control mode before).
 
 
 class OctoPolicyNode(Node):
@@ -258,77 +162,7 @@ class OctoPolicyNode(Node):
         self._unnorm_stats = None
         self._logged_waiting = False
 
-        # ---- KDL IK setup --------------------------------------------------
-        self._kdl_chain = None
-        if self.control_mode == "cartesian":
-            self._setup_ik()
-
         self.create_timer(1.0 / self.control_frequency, self._control_loop)
-
-    def _setup_ik(self):
-        """Load the URDF and build the KDL chain + IK solver."""
-        # Try to find the URDF from the package share directory
-        urdf_paths = [
-            os.path.join(
-                os.path.dirname(__file__), "..", "..", "..", "..",
-                "urdf", "so100.urdf.xacro"
-            ),
-            # Installed location
-            os.path.join(
-                os.path.expanduser("~"), "pick_place_ws", "install",
-                "so100_description", "share", "so100_description",
-                "urdf", "so100.urdf.xacro"
-            ),
-        ]
-
-        # Also try through the parameter server
-        try:
-            urdf_param = self.get_parameter("/robot_description").value
-            if urdf_param:
-                # Write to temp file for kdl_parser
-                import tempfile
-                with tempfile.NamedTemporaryFile(
-                    suffix=".xacro", mode="w", delete=False
-                ) as f:
-                    f.write(urdf_param)
-                    urdf_paths.insert(0, f.name)
-        except Exception:
-            pass
-
-        for path in urdf_paths:
-            if path and os.path.exists(path):
-                # Need to process xacro first
-                import subprocess
-                try:
-                    result = subprocess.run(
-                        ["xacro", path],
-                        capture_output=True, text=True, timeout=5.0
-                    )
-                    if result.returncode == 0:
-                        import tempfile
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".urdf", mode="w", delete=False
-                        ) as f:
-                            f.write(result.stdout)
-                            urdf_path = f.name
-                    else:
-                        continue
-                except FileNotFoundError:
-                    continue
-
-                chain = _build_kdl_chain_from_urdf(urdf_path)
-                if chain is not None:
-                    self._kdl_chain = chain
-                    self.get_logger().info(
-                        f"IK ready — loaded chain from {path}"
-                    )
-                    return
-
-        self.get_logger().warn(
-            "Could not load KDL chain for IK. "
-            "Cartesian control mode will fall back to joint-space."
-        )
-        self.control_mode = "joint_space"
 
     # ------------------------------------------------------------------ #
     # Callbacks                                                           #
@@ -432,18 +266,13 @@ class OctoPolicyNode(Node):
         Returns:
             (horizon, 6) joint-space trajectory, or None on IK failure.
         """
-        if self._kdl_chain is None:
-            self.get_logger().warn("No KDL chain available, cannot do IK")
-            return None
-
         arm_joints = current_joints[:5]
         q = np.array(arm_joints, dtype=np.float64)
 
         horizon = actions.shape[0]
         joint_traj = np.zeros((horizon, len(ARM_JOINTS)), dtype=np.float32)
 
-        # Get initial FK
-        T_current = _kdl_fk(self._kdl_chain, q)
+        T_current = so100_ik.fk(q)
 
         for t in range(horizon):
             # Parse the Cartesian delta
@@ -461,22 +290,16 @@ class OctoPolicyNode(Node):
             T_desired[2, 3] += dz
 
             # Apply rotation delta (small angle approximation via rotation matrix)
-            from PyKDL import Rotation
-            R_delta = Rotation.RPY(
-                float(droll), float(dpitch), float(dyaw)
-            )
-            R_delta_np = np.array(R_delta)
-            T_desired[:3, :3] = T_desired[:3, :3] @ R_delta_np
+            R_delta = so100_ik.rotation_from_rpy(droll, dpitch, dyaw)
+            T_desired[:3, :3] = T_desired[:3, :3] @ R_delta
 
-            # Solve IK
-            q_sol = _kdl_ik(
-                self._kdl_chain, q, T_desired, ARM_JOINT_LIMITS
+            # Solve IK. The arm only has 5 DOF for a 6-DOF pose target, so
+            # this converges to the closest reachable pose rather than an
+            # exact match -- fine for small deltas from a streaming policy.
+            q_sol, pos_err, rot_err = so100_ik.solve_pose_ik(
+                T_desired[:3, 3], T_desired[:3, :3], seed=q
             )
-            if q_sol is None:
-                self.get_logger().warn(
-                    f"IK failed at step {t}, using last valid config"
-                )
-                q_sol = q.copy()
+            q_sol = np.array(q_sol, dtype=np.float64)
 
             joint_traj[t, :5] = q_sol.astype(np.float32)
 
@@ -493,7 +316,7 @@ class OctoPolicyNode(Node):
 
             # Update FK for the next step
             q = q_sol
-            T_current = _kdl_fk(self._kdl_chain, q)
+            T_current = so100_ik.fk(q)
 
         return joint_traj
 

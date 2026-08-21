@@ -3,6 +3,28 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro"
        name="so100">
 
+  <xacro:include filename="$(find so100_description)/urdf/gazebo.xacro" />
+
+  <!-- ========================================================= -->
+  <!-- WORLD ANCHOR                                               -->
+  <!--                                                             -->
+  <!-- "base" previously had no joint tying it to anything static, -->
+  <!-- so it was a free-floating rigid body: gravity/reaction      -->
+  <!-- torques from the arm's own motion would slide or topple it. -->
+  <!-- A URDF link literally named "world", fixed-jointed to the   -->
+  <!-- root link, is recognized by the URDF->SDF conversion used   -->
+  <!-- by ros_gz_sim/robot_state_publisher and welds that root     -->
+  <!-- link rigidly to the simulation's static world frame.        -->
+  <!-- ========================================================= -->
+
+  <link name="world"/>
+
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
   <!-- ========================================================= -->
   <!-- MATERIALS                                                  -->
   <!-- ========================================================= -->
@@ -363,6 +385,21 @@
       <material name="so100_black"/>
     </visual>
 
+    <!-- Without collision geometry the fixed jaw is a physics ghost: -->
+    <!-- nothing opposes the moving jaw, so closing the gripper can   -->
+    <!-- never actually pinch an object against this side. A box      -->
+    <!-- approximating the finger (not the full mesh) is used because -->
+    <!-- ODE's mesh-vs-box collision is unreliable for thin fingers   -->
+    <!-- against a box-shaped object; box-vs-box contact is what      -->
+    <!-- actually generates a grasping force here. Box covers the     -->
+    <!-- finger's reach (y -0.02 to -0.10) measured from the STL.     -->
+    <collision>
+      <origin xyz="0.02 -0.06 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.08 0.048"/>
+      </geometry>
+    </collision>
+
   </link>
 
 
@@ -417,9 +454,15 @@
       <material name="so100_white"/>
     </visual>
 
+    <!-- Box instead of the raw mesh: ODE's mesh-vs-box collision is  -->
+    <!-- unreliable for a thin finger against a box-shaped object,    -->
+    <!-- which silently produced zero contact against the pick cube.  -->
+    <!-- Box covers the finger's reach (y -0.02 to -0.08 in the jaw's -->
+    <!-- own frame), measured from the STL.                           -->
     <collision>
+      <origin xyz="-0.001 -0.05 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so100_description/meshes/so100/Moving_Jaw.stl"/>
+        <box size="0.022 0.06 0.048"/>
       </geometry>
     </collision>
 
@@ -451,6 +494,38 @@
 
 
   <!-- ========================================================= -->
+  <!-- GRIPPER TCP (fixed) -->
+  <!--                                                             -->
+  <!-- The "gripper" link's own origin is not where the jaws       -->
+  <!-- actually pinch. Measured by scanning the STL meshes for how -->
+  <!-- the open-gap width between Fixed_Jaw and Moving_Jaw (at the -->
+  <!-- 1.8 rad open position) varies with distance from the pivot: -->
+  <!-- it only reaches ~30mm, wide enough for a 3cm object,        -->
+  <!-- around y=-0.045; nearer the pivot the open gap is a few mm  -->
+  <!-- (too narrow to fit anything), and nearer the fingertip      -->
+  <!-- (y=-0.095, an earlier and wrong estimate) it's 60-70mm (too -->
+  <!-- wide to ever actually grip a 3cm object). IK targeting      -->
+  <!-- "gripper" directly, or this earlier wrong estimate, places  -->
+  <!-- the goal point where the jaws can't reach or can't close on -->
+  <!-- anything, so grasps miss. This frame sits at the point that -->
+  <!-- actually needs to touch the object.                        -->
+  <!-- ========================================================= -->
+
+  <link name="gripper_tcp"/>
+
+  <joint name="gripper_tcp_joint" type="fixed">
+
+    <parent link="gripper"/>
+    <child link="gripper_tcp"/>
+
+    <origin
+      xyz="0 -0.045 0"
+      rpy="0 0 0"/>
+
+  </joint>
+
+
+  <!-- ========================================================= -->
   <!-- ROS 2 CONTROL                                              -->
   <!-- ========================================================= -->
 
@@ -460,39 +535,60 @@
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
     </hardware>
 
+    <!-- initial_value on the position state interface makes gz_ros2_control -->
+    <!-- hold each joint at that position from the very first simulation     -->
+    <!-- step. Without it, the joints are ungoverned by any command until    -->
+    <!-- arm_controller activates, and gravity droops the arm into its      -->
+    <!-- mechanical limits in that window (e.g. wrist_flex settles at its   -->
+    <!-- -2.5 rad lower limit) before anything ever commands them, which   -->
+    <!-- then makes MoveIt reject the very first plan since the start state -->
+    <!-- reads as out of bounds.                                            -->
+
     <joint name="shoulder_pan">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
     <joint name="shoulder_lift">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
     <joint name="elbow_flex">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
     <joint name="wrist_flex">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
     <joint name="wrist_roll">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
     <joint name="gripper_joint">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
@@ -508,6 +604,36 @@
     <plugin
       filename="gz_ros2_control-system"
       name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find so100_description)/config/controllers.yaml</parameters>
+    </plugin>
+
+  </gazebo>
+
+
+  <!-- ========================================================= -->
+  <!-- DETACHABLE JOINT (kinematic grasp)                         -->
+  <!--                                                             -->
+  <!-- Real box-vs-box contact between the jaws and the pick cube -->
+  <!-- doesn't reliably register in ODE for these thin, actively- -->
+  <!-- controlled fingers, so friction alone can't hold the       -->
+  <!-- object. This plugin creates/removes a rigid joint between  -->
+  <!-- the gripper and the cube on demand (see gripper.py), which -->
+  <!-- is the standard workaround for unreliable grasp physics.   -->
+  <!-- Specifying attach_topic keeps it detached until the first  -->
+  <!-- explicit attach request, so it starts inert at spawn.      -->
+  <!-- ========================================================= -->
+
+  <gazebo>
+
+    <plugin
+      filename="gz-sim-detachable-joint-system"
+      name="gz::sim::systems::DetachableJoint">
+      <parent_link>gripper</parent_link>
+      <child_model>red_cube</child_model>
+      <child_link>link</child_link>
+      <detach_topic>/model/so100/detachable_joint/detach</detach_topic>
+      <attach_topic>/model/so100/detachable_joint/attach</attach_topic>
+      <output_topic>/model/so100/detachable_joint/state</output_topic>
     </plugin>
 
   </gazebo>

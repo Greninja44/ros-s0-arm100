@@ -14,8 +14,13 @@ Requires the simulation AND the MoveIt move_group node to be running, e.g.:
     ros2 launch so100_moveit_config demo.launch.py
 
     # terminal 3
-    ros2 run vla_policy pick_place --ros-args \
-        -p object_x:=0.25 -p object_y:=0.0 -p object_z:=0.05
+    ros2 run vla_policy pick_place
+
+Grasp/place poses are solved with a custom top-down IK (see so100_ik.py)
+rather than MoveIt's pose-goal planning: the SO-100 only has 5 joints, so
+MoveIt's IK plugin can only solve position (not a full 6-DOF pose), which
+leaves the gripper's approach orientation arbitrary -- fine for reaching a
+point, useless for actually grasping something.
 """
 
 import rclpy
@@ -24,34 +29,24 @@ from rclpy.action import ActionClient
 from rclpy.parameter import Parameter
 
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import Point, Pose, Quaternion
+from geometry_msgs.msg import Vector3
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
-    BoundingVolume,
     Constraints,
     JointConstraint,
     MotionPlanRequest,
-    OrientationConstraint,
-    PositionConstraint,
     WorkspaceParameters,
 )
-from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import Header
 
 from vla_policy.gripper import Gripper
+from vla_policy.so100_ik import ARM_JOINTS, solve_ik
 
-ARM_JOINTS = [
-    "shoulder_pan",
-    "shoulder_lift",
-    "elbow_flex",
-    "wrist_flex",
-    "wrist_roll",
-]
 HOME_POSITIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
 
-# Tolerances used for pose goals (metre / radian).
-POSE_TOLERANCE = 0.02
-ORIENTATION_TOLERANCE = 0.2
+# Position error (metres) above which an IK solution is rejected outright
+# rather than sent to the arm.
+IK_POS_TOLERANCE = 0.01
 
 
 class PickPlace(Node):
@@ -65,13 +60,17 @@ class PickPlace(Node):
         self.approach_offset = self.declare_parameter(
             "approach_offset", 0.10
         ).value
+        # Defaults match worlds/pick_place.world: a table with its top
+        # surface at z=0.08, a 3cm pick cube resting on it (center at
+        # z=0.095) and a place pad on top of it (surface at z=0.09, so a
+        # cube placed there comes to rest at z=0.105).
         self.object_position = [
             self.declare_parameter(f"object_{ax}", default).value
-            for ax, default in zip(("x", "y", "z"), (0.25, 0.0, 0.05))
+            for ax, default in zip(("x", "y", "z"), (0.20, 0.0, 0.095))
         ]
         self.place_position = [
             self.declare_parameter(f"place_{ax}", default).value
-            for ax, default in zip(("x", "y", "z"), (-0.05, 0.25, 0.05))
+            for ax, default in zip(("x", "y", "z"), (-0.20, 0.0, 0.105))
         ]
 
         self.gripper = Gripper("gripper")
@@ -85,8 +84,8 @@ class PickPlace(Node):
         request = MotionPlanRequest()
         request.workspace_parameters = WorkspaceParameters()
         request.workspace_parameters.header = Header(frame_id="world")
-        request.workspace_parameters.min_corner = Point(x=-1.0, y=-1.0, z=-1.0)
-        request.workspace_parameters.max_corner = Point(x=1.0, y=1.0, z=1.0)
+        request.workspace_parameters.min_corner = Vector3(x=-1.0, y=-1.0, z=-1.0)
+        request.workspace_parameters.max_corner = Vector3(x=1.0, y=1.0, z=1.0)
         request.start_state.is_diff = True
         request.group_name = "arm"
         request.pipeline_id = "ompl"
@@ -105,39 +104,36 @@ class PickPlace(Node):
             jc.weight = 1.0
             constraints.joint_constraints.append(jc)
 
-    def _add_pose_goal(self, constraints, position):
-        pc = PositionConstraint()
-        pc.header = Header(frame_id="world")
-        pc.link_name = "gripper"
-        pc.weight = 1.0
+    def _solve_pose(self, position, label, constrain_orientation):
+        """Solve position (+ top-down approach) IK, returning joint values.
 
-        volume = BoundingVolume()
-        box = SolidPrimitive()
-        box.type = SolidPrimitive.BOX
-        box.dimensions = [
-            POSE_TOLERANCE,
-            POSE_TOLERANCE,
-            POSE_TOLERANCE,
-        ]
-        volume.primitives.append(box)
-        volume.primitive_poses.append(
-            Pose(
-                position=Point(x=position[0], y=position[1], z=position[2]),
-                orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
-            )
+        MoveIt's own KDL plugin only does position-only IK for this 5-DOF
+        chain, which leaves the gripper's approach orientation arbitrary --
+        fine for reaching a point, useless for actually grasping something,
+        since the jaws end up facing an unpredictable direction. Solving
+        this ourselves for a specific (top-down) approach and sending the
+        result as a joint-space goal gives real control over how the
+        gripper arrives, and is also faster/more reliable than pose-goal
+        OMPL sampling (joint goals plan almost instantly).
+
+        A strict top-down orientation is only asked for where the gripper
+        actually has to touch the object (grasp/place); the hover
+        waypoints in between only need position, and constraining their
+        orientation too would needlessly shrink the reachable set.
+        """
+        q, pos_err, orient_err, ok = solve_ik(
+            position,
+            constrain_orientation=constrain_orientation,
+            pos_tolerance=IK_POS_TOLERANCE,
         )
-        pc.constraint_region = volume
-        constraints.position_constraints.append(pc)
-
-        oc = OrientationConstraint()
-        oc.header = Header(frame_id="world")
-        oc.link_name = "gripper"
-        oc.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-        oc.absolute_x_axis_tolerance = ORIENTATION_TOLERANCE
-        oc.absolute_y_axis_tolerance = ORIENTATION_TOLERANCE
-        oc.absolute_z_axis_tolerance = ORIENTATION_TOLERANCE
-        oc.weight = 1.0
-        constraints.orientation_constraints.append(oc)
+        if not ok:
+            self.get_logger().error(
+                f"No good IK solution for '{label}' at {position} "
+                f"(pos_err={pos_err:.4f}m, orient_err={orient_err:.4f}) - "
+                "target may be out of reach for a top-down approach"
+            )
+            return None
+        return q
 
     def _plan_and_execute(self, label):
         rclpy.spin_once(self, timeout_sec=0.2)
@@ -167,6 +163,9 @@ class PickPlace(Node):
         result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
         result = result_future.result()
+        if result is None:
+            self.get_logger().error(f"Timed out waiting for '{label}' result")
+            return False
         if result.status != GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().error(
                 f"Failed '{label}' (status {result.status}) - "
@@ -181,9 +180,12 @@ class PickPlace(Node):
         self._add_joint_goal(self._current_request.goal_constraints[0], HOME_POSITIONS)
         return self._plan_and_execute("home")
 
-    def _move_to_pose(self, position, label):
+    def _move_to_pose(self, position, label, constrain_orientation=False):
+        q = self._solve_pose(position, label, constrain_orientation)
+        if q is None:
+            return False
         self._current_request = self._new_request()
-        self._add_pose_goal(self._current_request.goal_constraints[0], position)
+        self._add_joint_goal(self._current_request.goal_constraints[0], q)
         return self._plan_and_execute(label)
 
     # ------------------------------------------------------------------ #
@@ -207,7 +209,7 @@ class PickPlace(Node):
 
         if not self._move_to_pose(above_obj, "pre-grasp"):
             return
-        if not self._move_to_pose(obj, "approach"):
+        if not self._move_to_pose(obj, "approach", constrain_orientation=True):
             return
 
         if not self.gripper.close():
@@ -217,7 +219,7 @@ class PickPlace(Node):
 
         if not self._move_to_pose(above_place, "pre-place"):
             return
-        if not self._move_to_pose(place, "lower"):
+        if not self._move_to_pose(place, "lower", constrain_orientation=True):
             return
 
         if not self.gripper.open():

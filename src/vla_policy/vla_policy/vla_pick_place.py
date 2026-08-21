@@ -45,6 +45,8 @@ from control_msgs.action import FollowJointTrajectory
 from sensor_msgs.msg import Image, JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
 
+from vla_policy import so100_ik
+
 ARM_JOINTS = [
     "shoulder_pan",
     "shoulder_lift",
@@ -81,79 +83,11 @@ def image_to_numpy(msg):
     return np.ascontiguousarray(arr)
 
 
-# ------------------------------------------------------------------ #
-# KDL IK (same as octo_policy_node, kept self-contained)             #
-# ------------------------------------------------------------------ #
-
-def _build_kdl_chain(urdf_path):
-    try:
-        from kdl_parser import treeFromUrdfFile
-    except ImportError:
-        return None
-    ok, tree = treeFromUrdfFile(urdf_path)
-    if not ok:
-        return None
-    return tree.getChain("base", "gripper")
-
-
-def _kdl_fk(chain, q):
-    from PyKDL import ChainFkSolverPos_recursive, Frame
-    fk = ChainFkSolverPos_recursive(chain)
-    frame = Frame()
-    fk.JntToCart(q, frame)
-    return _frame_to_matrix(frame)
-
-
-def _frame_to_matrix(frame):
-    R = np.array(frame.M)
-    p = np.array(frame.p)
-    T = np.eye(4)
-    T[:3, :3] = R
-    T[:3, 3] = p
-    return T
-
-
-def _matrix_to_frame(T):
-    from PyKDL import Frame, Rotation, Vector
-    R = Rotation(
-        float(T[0, 0]), float(T[0, 1]), float(T[0, 2]),
-        float(T[1, 0]), float(T[1, 1]), float(T[1, 2]),
-        float(T[2, 0]), float(T[2, 1]), float(T[2, 2]),
-    )
-    p = Vector(float(T[0, 3]), float(T[1, 3]), float(T[2, 3]))
-    return Frame(R, p)
-
-
-def _kdl_ik(chain, q_init, T_desired, limits, max_iter=100, eps=1e-5):
-    from PyKDL import (
-        ChainFkSolverPos_recursive, ChainIkSolverVel_pinv,
-        ChainIkSolverPos_NR, JntArray,
-    )
-    fk = ChainFkSolverPos_recursive(chain)
-    vel = ChainIkSolverVel_pinv(chain)
-    ik = ChainIkSolverPos_NR(chain, fk, vel, maxiter=max_iter, eps=eps)
-
-    q0 = JntArray(len(q_init))
-    for i, v in enumerate(q_init):
-        q0[i] = float(v)
-    q_out = JntArray(len(q_init))
-    ret = ik.CartToJnt(q0, _matrix_to_frame(T_desired), q_out)
-    if ret < 0:
-        return None
-    result = np.array([q_out[i] for i in range(len(q_init))])
-    if limits is not None:
-        for i in range(len(result)):
-            result[i] = np.clip(result[i], limits[i, 0], limits[i, 1])
-    return result.astype(np.float64)
-
-
-ARM_JOINT_LIMITS = np.array([
-    [-2.0, 2.0],
-    [-0.001, 3.5],
-    [-3.14158, 0.001],
-    [-2.5, 1.2],
-    [-3.14158, 3.14158],
-], dtype=np.float64)
+# Cartesian IK is provided by so100_ik.py -- a self-contained numpy
+# solver with the chain's kinematics hardcoded, so no URDF file needs to
+# be located/parsed at runtime and no PyKDL/kdl_parser dependency is
+# needed (kdl_parser_py isn't available on Jazzy, which silently broke
+# this entire control mode before).
 
 
 # ------------------------------------------------------------------ #
@@ -216,68 +150,7 @@ class VLAPickPlace(Node):
         self._rng = None
         self._task = None
         self._unnorm_stats = None
-        self._kdl_chain = None
         self._step = 0
-
-        if self.control_mode == "cartesian":
-            self._setup_ik()
-
-    # ------------------------------------------------------------------ #
-    # IK setup                                                           #
-    # ------------------------------------------------------------------ #
-
-    def _setup_ik(self):
-        import subprocess, tempfile, os
-
-        urdf_paths = [
-            os.path.join(
-                os.path.dirname(__file__), "..", "..", "..", "..",
-                "urdf", "so100.urdf.xacro"
-            ),
-            os.path.join(
-                os.path.expanduser("~"), "pick_place_ws", "install",
-                "so100_description", "share", "so100_description",
-                "urdf", "so100.urdf.xacro"
-            ),
-        ]
-        try:
-            urdf_param = self.get_parameter("/robot_description").value
-            if urdf_param:
-                with tempfile.NamedTemporaryFile(
-                    suffix=".xacro", mode="w", delete=False
-                ) as f:
-                    f.write(urdf_param)
-                    urdf_paths.insert(0, f.name)
-        except Exception:
-            pass
-
-        for path in urdf_paths:
-            if path and os.path.exists(path):
-                try:
-                    result = subprocess.run(
-                        ["xacro", path], capture_output=True, text=True,
-                        timeout=5.0,
-                    )
-                    if result.returncode == 0:
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".urdf", mode="w", delete=False
-                        ) as f:
-                            f.write(result.stdout)
-                            urdf_path = f.name
-                    else:
-                        continue
-                except FileNotFoundError:
-                    continue
-                chain = _build_kdl_chain(urdf_path)
-                if chain is not None:
-                    self._kdl_chain = chain
-                    self.get_logger().info(f"IK ready — loaded from {path}")
-                    return
-
-        self.get_logger().warn(
-            "Could not load KDL chain. Falling back to joint-space mode."
-        )
-        self.control_mode = "joint_space"
 
     # ------------------------------------------------------------------ #
     # Callbacks                                                           #
@@ -379,10 +252,8 @@ class VLAPickPlace(Node):
     # ------------------------------------------------------------------ #
 
     def _cartesian_to_joints(self, actions, current_joints):
-        if self._kdl_chain is None:
-            return None
         q = np.array(current_joints[:5], dtype=np.float64)
-        T = _kdl_fk(self._kdl_chain, q)
+        T = so100_ik.fk(q)
         horizon = actions.shape[0]
         out = np.zeros((horizon, len(ARM_JOINTS)), dtype=np.float32)
 
@@ -391,15 +262,16 @@ class VLAPickPlace(Node):
             T_des[0, 3] += float(actions[t, 0])
             T_des[1, 3] += float(actions[t, 1])
             T_des[2, 3] += float(actions[t, 2])
-            from PyKDL import Rotation
-            R_d = Rotation.RPY(
+            R_d = so100_ik.rotation_from_rpy(
                 float(actions[t, 3]), float(actions[t, 4]), float(actions[t, 5])
             )
-            T_des[:3, :3] = T_des[:3, :3] @ np.array(R_d)
+            T_des[:3, :3] = T_des[:3, :3] @ R_d
 
-            q_sol = _kdl_ik(self._kdl_chain, q, T_des, ARM_JOINT_LIMITS)
-            if q_sol is None:
-                q_sol = q.copy()
+            # 5-DOF arm can't match an arbitrary 6-DOF pose exactly; this
+            # converges to the closest reachable pose, fine for small
+            # deltas from a streaming policy.
+            q_sol, _, _ = so100_ik.solve_pose_ik(T_des[:3, 3], T_des[:3, :3], seed=q)
+            q_sol = np.array(q_sol, dtype=np.float64)
             out[t, :5] = q_sol.astype(np.float32)
 
             adim = actions.shape[1]
@@ -414,7 +286,7 @@ class VLAPickPlace(Node):
                 out[t, 5] = current_joints[5]
 
             q = q_sol
-            T = _kdl_fk(self._kdl_chain, q)
+            T = so100_ik.fk(q)
 
         return out
 

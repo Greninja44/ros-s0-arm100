@@ -128,6 +128,7 @@ def generate_launch_description():
             moveit_config.robot_description_kinematics,
             moveit_config.planning_pipelines,
             moveit_config.trajectory_execution,
+            moveit_config.joint_limits,
             {
                 "use_sim_time": True,
 
@@ -142,6 +143,14 @@ def generate_launch_description():
 
                 # Planning scene service
                 "publish_planning_scene_hz": 10.0,
+
+                # Give trajectory execution generous slack before it
+                # decides the controller is "taking too long" and cancels
+                # the goal -- Gazebo physics can run behind wall-clock
+                # under load, and a cancelled-but-still-succeeding
+                # trajectory looks identical to a real failure otherwise.
+                "trajectory_execution.allowed_execution_duration_scaling": 5.0,
+                "trajectory_execution.allowed_goal_duration_margin": 5.0,
             },
         ],
     )
@@ -177,6 +186,12 @@ def generate_launch_description():
 
     # ---------------------------------------------------------
     # Launch
+    #
+    # world -> base is published by robot_state_publisher itself:
+    # the URDF now has a "world" link fixed-jointed to "base" (also
+    # what anchors the robot to the static simulation frame in
+    # Gazebo), so no separate static_transform_publisher is needed
+    # for the SRDF's virtual_joint frame.
     # ---------------------------------------------------------
 
     return LaunchDescription([
