@@ -20,6 +20,12 @@ MODULES = [
     "vla_policy.collect_data",
     "vla_policy.vla_pick_place",
     "vla_policy.octo_policy_node",
+    "vla_policy.openvla_policy_node",
+    "vla_policy.sam2_segmentation",
+    "vla_policy.diffusion_policy",
+    "vla_policy.tactile_sensing",
+    "vla_policy.task_decomposer",
+    "vla_policy.pointcloud_processor",
 ]
 
 
