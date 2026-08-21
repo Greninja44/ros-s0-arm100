@@ -62,17 +62,28 @@ pick_place_ws/                        # so100_description package root
 
 ### so100_description
 
-* `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin
+* `urdf/so100.urdf.xacro` — robot model with `gz_ros2_control` plugin, box
+  collision on both gripper jaws (needed for reliable contact — see below),
+  and a `DetachableJoint` plugin that lets the gripper rigidly grab the pick
+  cube on demand (see `gripper.py`)
 * `urdf/gazebo.xacro` — link friction / gazebo properties
 * `launch/gazebo.launch.py` — spawns the arm in Gazebo, bridges the clock and
   the camera, starts RSP and loads the controllers
 * `launch/display.launch.py` — lightweight RViz display (RSP + joint state
   publisher GUI, no Gazebo needed)
 * `config/controllers.yaml` — `joint_state_broadcaster` + `arm_controller`
-* `worlds/pick_place.world` — ground plane, sun, a red pick cube at
-  `(0.30, 0, 0.025)`, a green place pad at `(-0.30, 0, 0.005)` and an
-  overhead camera publishing `/image`
+* `worlds/pick_place.world` — a table, a red pick cube at `(0.20, 0, 0.095)`,
+  a green place pad at `(-0.20, 0, 0.105)` and an overhead camera publishing
+  `/image`
 * `worlds/empty.world` — ground plane + sun (default world)
+
+Grasping note: the gripper's fingers are thin enough that ODE's mesh/box
+collision against the pick cube doesn't reliably register contact, so
+closing the jaws can't hold anything by friction alone. `gripper.py`'s
+`close()`/`open()` additionally trigger a Gazebo `DetachableJoint` plugin
+(rigidly attaching/detaching the cube to the gripper) as the standard
+workaround for this — see the comments in `so100.urdf.xacro` and
+`gripper.py` for details.
 
 ### so100_moveit_config
 
@@ -97,7 +108,8 @@ ROS 2 Python package with the policy and grasp nodes:
   joint positions via KDL inverse kinematics. Octo loads lazily; `mock:=true`
   tests the loop without a GPU/checkpoint.
 * `gripper.py` — `Gripper` class (open/close via `FollowJointTrajectory`) plus
-  the `gripper_demo` node.
+  the `gripper_demo` node. `close()`/`open()` also attach/detach the pick
+  cube via the `DetachableJoint` plugin (see the grasping note above).
 * `pick_place.py` — `pick_place` node: full cycle (home -> pre-grasp -> approach
   -> close -> lift -> place -> open) planned through the `move_group` action.
 * `teleop_keyboard.py` — `teleop_keyboard` node: keyboard teleoperation for the
@@ -118,6 +130,18 @@ ROS 2 Python package with the policy and grasp nodes:
 * `ros-jazzy-ros2-control` / `ros-jazzy-ros2-controllers`
 * `ros-jazzy-moveit`
 * xacro
+
+### Running under WSL2
+
+Gazebo Transport's default multicast discovery can fail under WSL2 (a dead
+`eth0` interface alongside the real one causes repeated "Network is
+unreachable" / "No such device" errors and prevents Gazebo from talking to
+itself). Export these before launching anything Gazebo-related:
+
+```bash
+export GZ_IP=127.0.0.1
+export GZ_PARTITION=localhost
+```
 
 ## Build
 
@@ -143,8 +167,8 @@ pick-and-place scene instead:
 ros2 launch so100_description gazebo.launch.py world:=pick_place.world
 ```
 
-The `pick_place.world` spawns a red cube at `(0.30, 0, 0.025)` and a green
-place pad at `(-0.30, 0, 0.005)`.
+The `pick_place.world` spawns a table with a red cube at `(0.20, 0, 0.095)`
+resting on top of it, and a green place pad at `(-0.20, 0, 0.105)`.
 
 Verify the controllers are active:
 
@@ -198,12 +222,12 @@ ros2 launch so100_description gazebo.launch.py
 ros2 launch so100_moveit_config demo.launch.py
 
 # terminal 3 — plan + execute a full pick-and-place cycle
-ros2 run vla_policy pick_place --ros-args \
-  -p object_x:=0.30 -p object_y:=0.0 -p object_z:=0.05 \
-  -p place_x:=-0.30 -p place_y:=0.0 -p place_z:=0.05
+ros2 run vla_policy pick_place
 ```
 
-Adjust the object/place positions to match whatever you spawn in the world.
+`pick_place`'s `object_*`/`place_*` parameters already default to the
+`pick_place.world` cube/pad positions above; pass `--ros-args -p object_x:=...`
+etc. to override them if you spawn something at a different pose.
 
 ### 6. Octo VLA policy
 
