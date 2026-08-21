@@ -1,0 +1,273 @@
+<?xml version="1.0" ?>
+
+<sdf version="1.9">
+
+  <world name="domain_randomized">
+
+    <physics name="1ms" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics"/>
+
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands"/>
+
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster"/>
+
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- ========================================================= -->
+    <!-- RANDOMIZED lighting: varied intensity and direction        -->
+    <!-- ========================================================= -->
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.7 0.7 0.7 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.3 0.7 -1</direction>
+    </light>
+
+    <light type="point" name="fill_light">
+      <cast_shadows>false</cast_shadows>
+      <pose>0.5 -0.5 1.5 0 0 0</pose>
+      <diffuse>0.3 0.3 0.25 1</diffuse>
+      <attenuation>
+        <range>5.0</range>
+        <constant>0.5</constant>
+        <linear>0.3</linear>
+        <quadratic>0.1</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- ========================================================= -->
+    <!-- Ground plane with textured surface                         -->
+    <!-- ========================================================= -->
+
+    <model name="ground_plane">
+      <static>true</static>
+
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.45 0.45 0.45 1</ambient>
+            <diffuse>0.5 0.5 0.5 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ========================================================= -->
+    <!-- RANDOMIZED pick object: varied color, size, pose           -->
+    <!-- (in production, use a script to randomize these per episode)-->
+    <!-- ========================================================= -->
+
+    <model name="pick_object">
+      <static>false</static>
+      <pose>0.22 0.03 0.015 0 0 0.3</pose>
+
+      <link name="link">
+        <inertial>
+          <mass>0.025</mass>
+          <inertia>
+            <ixx>1.2e-5</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1.2e-5</iyy>
+            <iyz>0</iyz>
+            <izz>1.2e-5</izz>
+          </inertia>
+        </inertial>
+
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.035 0.035 0.035</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.2</mu>
+                <mu2>1.2</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.035 0.035 0.035</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.85 0.15 0.15 1</ambient>
+            <diffuse>0.9 0.2 0.2 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ========================================================= -->
+    <!-- RANDOMIZED place target: varied position and color         -->
+    <!-- ========================================================= -->
+
+    <model name="place_target">
+      <static>true</static>
+      <pose>-0.03 0.22 0.0025 0 0 0.1</pose>
+
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.005</size>
+            </box>
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.005</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.1 0.75 0.15 1</ambient>
+            <diffuse>0.15 0.8 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ========================================================= -->
+    <!-- Clutter objects for domain randomization training           -->
+    <!-- ========================================================= -->
+
+    <model name="distractor_cube_1">
+      <static>false</static>
+      <pose>0.18 0.08 0.012 0 0 0.7</pose>
+      <link name="link">
+        <inertial><mass>0.018</mass><inertia><ixx>8e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8e-6</iyy><iyz>0</iyz><izz>8e-6</izz></inertia></inertial>
+        <collision name="collision"><geometry><box><size>0.025 0.025 0.025</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.025 0.025 0.025</size></box></geometry>
+          <material><ambient>0.1 0.1 0.85 1</ambient><diffuse>0.15 0.15 0.9 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="distractor_cube_2">
+      <static>false</static>
+      <pose>0.28 -0.06 0.012 0 0 1.2</pose>
+      <link name="link">
+        <inertial><mass>0.018</mass><inertia><ixx>8e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8e-6</iyy><iyz>0</iyz><izz>8e-6</izz></inertia></inertial>
+        <collision name="collision"><geometry><box><size>0.025 0.025 0.025</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.025 0.025 0.025</size></box></geometry>
+          <material><ambient>0.85 0.85 0.1 1</ambient><diffuse>0.9 0.9 0.15 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="distractor_cylinder">
+      <static>false</static>
+      <pose>0.2 -0.1 0.02 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>0.012</mass><inertia><ixx>4e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>4e-6</iyy><iyz>0</iyz><izz>4e-6</izz></inertia></inertial>
+        <collision name="collision"><geometry><cylinder><radius>0.01</radius><length>0.04</length></cylinder></geometry></collision>
+        <visual name="visual"><geometry><cylinder><radius>0.01</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.8 0.2 0.8 1</ambient><diffuse>0.85 0.25 0.85 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ========================================================= -->
+    <!-- Table / workspace surface with randomized texture          -->
+    <!-- ========================================================= -->
+
+    <model name="workspace_table">
+      <static>true</static>
+      <pose>0.1 0.05 -0.02 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.6 0.6 0.04</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.6 0.6 0.04</size></box></geometry>
+          <material>
+            <ambient>0.35 0.28 0.2 1</ambient>
+            <diffuse>0.4 0.32 0.24 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ========================================================= -->
+    <!-- RGB-D Camera (depth + color)                                -->
+    <!-- ========================================================= -->
+
+    <model name="overhead_camera">
+      <static>true</static>
+      <pose>0.1 0.1 1.2 0 0 0</pose>
+
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.05 0.05 0.05</size></box></geometry>
+          <material><ambient>0.2 0.2 0.8 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+        </visual>
+
+        <sensor name="camera" type="camera">
+          <always_on>1</always_on>
+          <update_rate>30</update_rate>
+          <topic>image</topic>
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>100</far></clip>
+          </camera>
+        </sensor>
+
+        <sensor name="depth_camera" type="depth_camera">
+          <always_on>1</always_on>
+          <update_rate>30</update_rate>
+          <topic>depth/image</topic>
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image><width>640</width><height>480</height><format>R_FLOAT32</format></image>
+            <clip><near>0.1</near><far>10.0</far></clip>
+          </camera>
+        </sensor>
+      </link>
+    </model>
+
+  </world>
+
+</sdf>
