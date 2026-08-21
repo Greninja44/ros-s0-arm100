@@ -4,7 +4,7 @@
   <name>vla_policy</name>
   <version>0.2.0</version>
   <description>VLA policy nodes for the SO-100 arm: Octo, OpenVLA, SAM2, Diffusion Policy, tactile sensing, and task planning</description>
-  <maintainer email="batman@todo.todo">batman</maintainer>
+  <maintainer email="adarshvijaya22@gmail.com">adarsh</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
@@ -27,6 +27,8 @@
   <exec_depend>python3-torch</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

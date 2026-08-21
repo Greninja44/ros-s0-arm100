@@ -11,9 +11,12 @@ setup(
         ("share/" + package_name, ["package.xml"]),
     ],
     install_requires=["setuptools"],
+    extras_require={
+        "test": ["pytest"],
+    },
     zip_safe=True,
-    maintainer="batman",
-    maintainer_email="batman@todo.todo",
+    maintainer="adarsh",
+    maintainer_email="adarshvijaya22@gmail.com",
     description="VLA policy nodes for the SO-100 arm: Octo, OpenVLA, SAM2, Diffusion Policy, and more",
     license="Apache-2.0",
     entry_points={
