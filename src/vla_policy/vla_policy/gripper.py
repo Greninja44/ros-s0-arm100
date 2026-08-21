@@ -6,6 +6,8 @@ Commands the ``gripper_joint`` through the ros2_control ``arm_controller``
 commanded, so it works with the existing gazebo.launch.py setup.
 """
 
+import os
+import subprocess
 import time
 
 import rclpy
@@ -31,6 +33,56 @@ GRIPPER_JOINT = "gripper_joint"
 # 0.0 rad = fully closed, 2.0 rad = fully open.
 DEFAULT_OPEN_POSITION = 1.8
 DEFAULT_CLOSED_POSITION = 0.0
+
+# Topics for the DetachableJoint plugin (see so100.urdf.xacro): real
+# box-vs-box contact between the jaws and a grasped object doesn't
+# reliably register in ODE for these thin, actively-controlled fingers,
+# so friction alone can't hold anything. Closing the gripper instead
+# creates a rigid joint between the gripper and the object; opening it
+# removes it.
+DETACHABLE_ATTACH_TOPIC = "/model/so100/detachable_joint/attach"
+DETACHABLE_DETACH_TOPIC = "/model/so100/detachable_joint/detach"
+
+
+def _gz_publish_empty(topic, duration=1, logger=None, retries=3):
+    """Publish a one-shot gz.msgs.Empty on a Gazebo Transport topic.
+
+    Sent up to ``retries`` times: gz-transport discovery for a
+    freshly-started publisher process is occasionally too slow to land
+    within a single ~1s publish window, which silently drops the
+    attach/detach request with no error -- retrying is cheap insurance
+    against that race.
+    """
+    env = dict(os.environ)
+    env.setdefault("GZ_IP", "127.0.0.1")
+    env.setdefault("GZ_PARTITION", "localhost")
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(
+                [
+                    "gz", "topic",
+                    "-t", topic,
+                    "-m", "gz.msgs.Empty",
+                    "-p", "unused: true",
+                    "-d", str(duration),
+                ],
+                env=env,
+                timeout=duration + 5,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0 and logger:
+                logger.error(
+                    f"gz topic publish to {topic} failed "
+                    f"(attempt {attempt + 1}/{retries}, rc={result.returncode}): "
+                    f"{result.stderr.strip()}"
+                )
+        except (subprocess.SubprocessError, OSError) as exc:
+            if logger:
+                logger.error(
+                    f"gz topic publish to {topic} raised "
+                    f"(attempt {attempt + 1}/{retries}): {exc}"
+                )
 
 
 class Gripper(Node):
@@ -86,12 +138,19 @@ class Gripper(Node):
         return result.status == GoalStatus.STATUS_SUCCEEDED
 
     def open(self, duration=2.5):
-        """Fully open the gripper. Returns True on success."""
+        """Fully open the gripper, releasing anything held. Returns True on success."""
+        _gz_publish_empty(DETACHABLE_DETACH_TOPIC, logger=self.get_logger())
         return self._send_position(self.open_position, duration)
 
     def close(self, duration=2.5):
-        """Fully close the gripper. Returns True on success."""
-        return self._send_position(self.close_position, duration)
+        """Fully close the gripper and grasp whatever's between the jaws.
+
+        Returns True on success.
+        """
+        result = self._send_position(self.close_position, duration)
+        if result:
+            _gz_publish_empty(DETACHABLE_ATTACH_TOPIC, logger=self.get_logger())
+        return result
 
     def set_position(self, position, duration=1.0):
         """Set the gripper to an arbitrary position in the joint range."""

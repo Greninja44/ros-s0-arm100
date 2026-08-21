@@ -33,7 +33,7 @@ _CHAIN = [
 ]
 
 # gripper -> gripper_tcp fixed offset (pinch point, see urdf/so100.urdf.xacro)
-_TCP_OFFSET = np.array([-0.019, -0.095, 0.0])
+_TCP_OFFSET = np.array([0.0, -0.045, 0.0])
 
 # gripper_tcp's local "pointing" axis (the direction the jaws face)
 _LOCAL_APPROACH = np.array([0.0, -1.0, 0.0])
@@ -44,7 +44,7 @@ _LOCAL_APPROACH = np.array([0.0, -1.0, 0.0])
 # the limit and get rejected as "out of bounds" on the next plan. Solving
 # against a slightly tighter range keeps every solution a small margin
 # inside the true physical limits.
-_LIMIT_MARGIN = 0.02
+_LIMIT_MARGIN = 0.08
 
 JOINT_LIMITS = [
     (-2.0, 2.0),
