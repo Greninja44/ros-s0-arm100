@@ -45,6 +45,11 @@ def generate_launch_description():
         "so100.urdf.xacro"
     )
 
+    controllers_file = os.path.join(
+        pkg_share,
+        "config",
+        "controllers.yaml"
+    )
     world_file = PathJoinSubstitution([
         pkg_share,
         "worlds",
@@ -93,13 +98,42 @@ def generate_launch_description():
 
     # =========================================================
     # Gazebo -> ROS 2 camera bridge
+    #
+    # The overhead camera sensor in pick_place.world publishes to
+    # "image" inside its model namespace, which resolves to the
+    # topic /overhead_camera/link/image.  The bridge must use
+    # this full topic path.
     # =========================================================
 
     camera_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
         arguments=[
-            "/image@sensor_msgs/msg/Image[gz.msgs.Image"
+            "/overhead_camera/link/image@sensor_msgs/msg/Image[gz.msgs.Image",
+            "/overhead_camera/link/image/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
+        ],
+        remappings=[
+            ("/overhead_camera/link/image", "/image"),
+            ("/overhead_camera/link/image/camera_info", "/image/camera_info"),
+        ],
+        output="screen"
+    )
+
+    # =========================================================
+    # Gazebo -> ROS 2 depth camera bridge
+    # (for pick_place_depth.world and domain_randomized.world)
+    # =========================================================
+
+    depth_camera_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            "/overhead_camera/link/depth/image@sensor_msgs/msg/Image[gz.msgs.Image",
+            "/overhead_camera/link/depth/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
+        ],
+        remappings=[
+            ("/overhead_camera/link/depth/image", "/depth/image"),
+            ("/overhead_camera/link/depth/camera_info", "/depth/camera_info"),
         ],
         output="screen"
     )
@@ -117,6 +151,25 @@ def generate_launch_description():
             value_type=str
         )
     }
+
+    # =========================================================
+    # Controller Manager — load controller definitions from YAML
+    #
+    # The gz_ros2_control Gazebo plugin creates the
+    # controller_manager, but we still need to load the parameter
+    # file that defines the controllers (joint_state_broadcaster,
+    # arm_controller, etc.).
+    # =========================================================
+
+    controller_manager = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
+        parameters=[
+            robot_description,
+            controllers_file,
+        ],
+        output="screen",
+    )
 
     # =========================================================
     # Robot State Publisher
@@ -228,7 +281,9 @@ def generate_launch_description():
         gazebo,
         clock_bridge,
         camera_bridge,
+        depth_camera_bridge,
         robot_state_publisher,
+        controller_manager,
         spawn_robot,
         spawn_joint_state_broadcaster,
         spawn_arm_controller,

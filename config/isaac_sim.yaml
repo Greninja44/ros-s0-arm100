@@ -1,0 +1,164 @@
+# Isaac Sim configuration for the SO-100 arm
+#
+# This file configures NVIDIA Isaac Sim for photorealistic simulation
+# with domain randomization, synthetic data generation, and GPU-accelerated
+# perception.
+#
+# Requirements:
+#   - NVIDIA Isaac Sim 4.x (via Omniverse)
+#   - Isaac ROS (ros2 packages from NVIDIA)
+#   - GPU with RTX support (RTX 3070+ recommended)
+
+simulation:
+  render_engine: "rtx"
+  render_quality: "high"
+  enable_ray_tracing: true
+  enable_denoising: true
+  max_fps: 60
+  physics_dt: 0.005
+  render_dt: 0.016
+  gpu_physics: true
+  scene: "pick_place"
+  ground_plane: true
+  lighting: "photorealistic"
+
+domain_randomization:
+  enabled: true
+
+  objects:
+    randomize_pose:
+      enabled: true
+      position_noise: [0.02, 0.02, 0.005]
+      rotation_noise: [0.0, 0.0, 0.3]
+    randomize_color:
+      enabled: true
+      color_range: [[0.5, 0.1, 0.1], [0.9, 0.5, 0.5]]
+    randomize_size:
+      enabled: true
+      scale_range: [0.8, 1.2]
+    randomize_material:
+      friction_range: [0.5, 2.0]
+      restitution_range: [0.0, 0.3]
+
+  camera:
+    randomize_position:
+      enabled: true
+      position_noise: [0.01, 0.01, 0.02]
+    randomize_intrinsics:
+      enabled: true
+      fov_range: [55.0, 75.0]
+    randomize_noise:
+      gaussian_sigma: 0.01
+    randomize_exposure:
+      exposure_range: [0.8, 1.2]
+
+  lighting:
+    randomize_intensity:
+      enabled: true
+      intensity_range: [0.6, 1.4]
+    randomize_direction:
+      enabled: true
+      direction_noise: [0.1, 0.1, 0.1]
+    randomize_color_temperature:
+      temperature_range: [4000, 7000]
+
+  physics:
+    randomize_friction:
+      enabled: true
+      ground_friction_range: [0.5, 1.5]
+    randomize_mass:
+      enabled: true
+      mass_scale_range: [0.8, 1.2]
+    randomize_damping:
+      enabled: true
+      damping_scale_range: [0.9, 1.1]
+
+perception:
+  depth_camera:
+    enabled: true
+    resolution: [640, 480]
+    fps: 30
+    fov: 87.0
+    min_depth: 0.1
+    max_depth: 10.0
+    noise_model: "gaussian"
+    noise_sigma: 0.005
+
+  pointcloud:
+    enabled: true
+    voxel_size: 0.005
+    min_points: 50
+    max_range: 5.0
+
+  detection:
+    method: "sam2"
+    confidence_threshold: 0.5
+
+  tactile:
+    enabled: true
+    sensor_type: "simulated"
+    update_rate: 100
+
+data_generation:
+  enabled: true
+  format: "rlds"
+  num_episodes: 1000
+  max_steps_per_episode: 200
+  trajectory_type: "teleoperation"
+  augmentation:
+    random_crop: true
+    color_jitter: true
+    random_flip: false
+    random_rotation: false
+
+sim_to_real:
+  enabled: true
+  domain_adaptation:
+    method: "randomization"
+    num_variations: 100
+  policy_distillation:
+    teacher: "diffusion_policy"
+    student: "openvla"
+    distillation_steps: 10000
+
+robot:
+  name: "so100"
+  urdf_path: "urdf/so100.urdf.xacro"
+  joints:
+    - shoulder_pan
+    - shoulder_lift
+    - elbow_flex
+    - wrist_flex
+    - wrist_roll
+    - gripper_joint
+  joint_limits:
+    shoulder_pan: [-2.0, 2.0]
+    shoulder_lift: [-0.001, 3.5]
+    elbow_flex: [-3.14158, 0.001]
+    wrist_flex: [-2.5, 1.2]
+    wrist_roll: [-3.14158, 3.14158]
+    gripper_joint: [-0.2, 2.0]
+  controller:
+    type: "joint_trajectory_controller"
+    update_rate: 100
+    position_tolerance: 0.01
+    velocity_tolerance: 0.1
+
+environment:
+  workspace_size: [0.6, 0.6, 0.4]
+  objects:
+    - name: "red_cube"
+      type: "box"
+      size: [0.03, 0.03, 0.03]
+      color: [0.9, 0.1, 0.1]
+      movable: true
+    - name: "blue_cube"
+      type: "box"
+      size: [0.03, 0.03, 0.03]
+      color: [0.1, 0.1, 0.9]
+      movable: true
+    - name: "green_pad"
+      type: "box"
+      size: [0.06, 0.06, 0.005]
+      color: [0.1, 0.8, 0.1]
+      movable: false
